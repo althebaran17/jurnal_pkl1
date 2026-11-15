@@ -8,16 +8,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    # Secret key untuk Flask session (diambil dari .env)
+    # Secret key untuk Flask session (diambil dari .env atau railway)
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-only-ganti-lewat-env-SECRET_KEY'
 
-    # Konfigurasi Database MySQL (Samakan kunci os.environ.get dengan isi .env)
-    MYSQL_HOST = os.environ.get('DB_HOST', 'localhost')
-    MYSQL_USER = os.environ.get('DB_USER', 'root')
-    MYSQL_PASSWORD = os.environ.get('DB_PASSWORD', '')
-    MYSQL_DB = os.environ.get('DB_NAME', 'db_jurnal_pkl')
-    # Mengambil DB_PORT dari .env (Fallback ke MYSQLPORT / 3306)
-    MYSQL_PORT = int(os.environ.get('DB_PORT') or os.environ.get('MYSQLPORT') or 3306)
+    # Konfigurasi Database MySQL (Mendukung format DB_... maupun format Railway MYSQL_...)
+    MYSQL_HOST = os.environ.get('DB_HOST') or os.environ.get('MYSQLHOST') or 'localhost'
+    MYSQL_USER = os.environ.get('DB_USER') or os.environ.get('MYSQLUSER') or 'root'
+    MYSQL_PASSWORD = os.environ.get('DB_PASSWORD') or os.environ.get('MYSQLPASSWORD') or ''
+    MYSQL_DB = os.environ.get('DB_NAME') or os.environ.get('MYSQL_DATABASE') or os.environ.get('MYSQLDATABASE') or 'db_jurnal_pkl'
+    
+    # Mengambil DB_PORT / MYSQLPORT secara aman dari error string
+    port_val = os.environ.get('DB_PORT') or os.environ.get('MYSQLPORT') or 3306
+    try:
+        MYSQL_PORT = int(str(port_val).replace('${MYSQLPORT}', '3306').replace('${PORT}', '3306'))
+    except (ValueError, TypeError):
+        MYSQL_PORT = 3306
 
     # Cookie sesi & keamanan HTTP
     SESSION_COOKIE_HTTPONLY = True

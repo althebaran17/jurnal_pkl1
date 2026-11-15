@@ -1,0 +1,59 @@
+{% extends 'pkl/base.html' %}
+{% set active_menu = 'dashboard' %}
+{% block title %}Dashboard Pemantauan{% endblock %}
+{% block navbar_title %}Dashboard Pemantauan Siswa Bimbingan{% endblock %}
+{% block content %}
+<div class="adm-panel">
+    <div class="hd">Informasi Akun Pemantau</div>
+    <div class="bd">
+        <p style="color: var(--text-secondary); margin: 0; line-height: 1.6;">
+            Halo <strong>{{ session.get('nama') }}</strong>, Anda masuk sebagai <strong>Pembimbing PKL</strong>.
+            Halaman ini hanya menampilkan siswa yang ditetapkan sebagai bimbingan Anda, dalam mode <em>read-only</em>.
+        </p>
+    </div>
+</div>
+
+<div class="pkl-stats">
+    <div class="adm-panel"><div class="hd">Siswa Bimbingan</div><div class="bd" style="color: var(--primary);">{{ total_siswa }}</div></div>
+    <div class="adm-panel"><div class="hd">Hadir Hari Ini</div><div class="bd" style="color:#16A34A;">{{ rekap.Hadir }}</div></div>
+    <div class="adm-panel"><div class="hd">Izin / Sakit</div><div class="bd" style="color:#D97706;">{{ rekap.Izin + rekap.Sakit }}</div></div>
+    <div class="adm-panel"><div class="hd">Alpa Hari Ini</div><div class="bd" style="color:#DC2626;">{{ rekap.Alpa }}</div></div>
+    <div class="adm-panel"><div class="hd">Belum Absen</div><div class="bd">{{ rekap.Belum }}</div></div>
+    <div class="adm-panel"><div class="hd">Laporan Pending</div><div class="bd" style="color:#D97706;">{{ laporan_pending }}</div></div>
+</div>
+
+<div class="adm-panel">
+    <div class="hd">
+        <span>Status Kehadiran Hari Ini ({{ hari_ini | pkl_tgl }})</span>
+        <a href="{{ url_for('pkl.absensi') }}" class="adm-btn">Riwayat Lengkap</a>
+    </div>
+    <div class="adm-scroll">
+        <table class="adm-table">
+            <thead><tr><th>Nama</th><th>NISN</th><th>Kelas / Jurusan</th><th>Status</th><th>Jam</th><th>Keterangan</th></tr></thead>
+            <tbody>
+            {% for r in hari_ini_list %}
+                <tr>
+                    <td><a href="{{ url_for('pkl.siswa_detail', siswa_id=r.id) }}"><strong>{{ r.nama }}</strong></a></td>
+                    <td>{{ r.nisn }}</td>
+                    <td>{{ r.kelas_jurusan or '-' }}</td>
+                    <td>{% if r.status %}<span class="chip {{ r.status|lower }}">{{ r.status }}</span>{% else %}<span class="chip">Belum absen</span>{% endif %}</td>
+                    <td>{{ r.created_at | pkl_jam if r.status else '-' }}</td>
+                    <td>{{ r.keterangan or '-' }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="6" class="adm-empty">Belum ada siswa yang ditetapkan sebagai bimbingan Anda. Hubungi Admin.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="adm-panel">
+    <div class="hd">Akses Menu Pemantauan</div>
+    <div class="bd" style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <a href="{{ url_for('pkl.siswa') }}" class="adm-btn primary">Daftar Siswa Bimbingan</a>
+        <a href="{{ url_for('pkl.laporan') }}" class="adm-btn">Laporan Harian</a>
+        <a href="{{ url_for('pkl.absensi') }}" class="adm-btn">Riwayat Absensi</a>
+    </div>
+</div>
+{% endblock %}

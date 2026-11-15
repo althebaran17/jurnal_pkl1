@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kelola Pembimbing - E-Jurnal PKL</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/logo.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    <style>
+        /* =========================================================
+           STYLE KHUSUS KELOLA PEMBIMBING (GABUNGAN SATU FILE)
+           ========================================================= */
+        .adm-panel { 
+            background: var(--surface); 
+            border: 1px solid var(--border); 
+            border-radius: var(--radius-lg); 
+            box-shadow: var(--shadow-sm); 
+            margin-bottom: 24px; 
+            overflow: hidden; 
+        }
+        .adm-panel > .hd { 
+            padding: 18px 24px; 
+            font-weight: 700; 
+            font-size: var(--text-md);
+            color: var(--text); 
+            border-bottom: 1px solid var(--border); 
+            background-color: var(--bg-app);
+        }
+        .adm-panel > .bd { 
+            padding: 24px; 
+        }
+        
+        .adm-scroll { 
+            overflow-x: auto; 
+        }
+        .adm-table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            font-size: var(--text-base); 
+        }
+        .adm-table th { 
+            text-align: left; 
+            padding: 14px 20px; 
+            font-size: var(--text-xs); 
+            font-weight: 700;
+            text-transform: uppercase; 
+            letter-spacing: .05em; 
+            color: var(--text-muted); 
+            background-color: var(--bg-app);
+            border-bottom: 1px solid var(--border); 
+            white-space: nowrap; 
+        }
+        .adm-table td { 
+            padding: 16px 20px; 
+            border-bottom: 1px solid var(--border-subtle); 
+            color: var(--text-secondary); 
+            vertical-align: middle; 
+        }
+        .adm-table tr:last-child td { 
+            border-bottom: none; 
+        }
+        .adm-table tr:hover {
+            background-color: #f8fafc;
+        }
+        .adm-empty { 
+            text-align: center; 
+            color: var(--text-faint); 
+            padding: 32px !important; 
+        }
+        
+        .adm-form { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); 
+            gap: 16px; 
+            align-items: end; 
+        }
+        .adm-form label { 
+            display: block; 
+            font-size: var(--text-xs); 
+            font-weight: 700; 
+            color: var(--text-secondary); 
+            text-transform: uppercase; 
+            letter-spacing: .05em; 
+            margin-bottom: 6px; 
+        }
+        .adm-input { 
+            width: 100%; 
+            padding: 11px 14px; 
+            border: 1px solid var(--border); 
+            border-radius: var(--radius-sm); 
+            background: var(--surface); 
+            color: var(--text); 
+            font-size: var(--text-base); 
+            font-family: inherit; 
+            outline: none;
+            transition: var(--transition);
+        }
+        .adm-input:focus { 
+            border-color: var(--primary); 
+            box-shadow: var(--focus-ring);
+        }
+        
+        .adm-btn { 
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 18px; 
+            border: 1px solid var(--border); 
+            border-radius: var(--radius-sm); 
+            background: var(--surface); 
+            color: var(--text-secondary); 
+            font-weight: 600; 
+            font-size: var(--text-sm); 
+            cursor: pointer; 
+            font-family: inherit; 
+            text-decoration: none;
+            transition: var(--transition);
+            box-shadow: var(--shadow-xs);
+            white-space: nowrap;
+        }
+        .adm-btn:hover {
+            background-color: var(--surface-hover);
+            color: var(--text);
+            border-color: var(--border-strong);
+            transform: translateY(-1px);
+        }
+        .adm-btn.primary { 
+            background: var(--primary); 
+            border-color: var(--primary); 
+            color: #fff; 
+        }
+        .adm-btn.primary:hover { 
+            background: var(--primary-hover); 
+            border-color: var(--primary-hover);
+            color: #fff;
+        }
+        .adm-btn.danger { 
+            background: var(--danger-bg);
+            color: var(--danger-text); 
+            border-color: var(--danger-border); 
+        }
+        .adm-btn.danger:hover { 
+            background: var(--danger); 
+            color: #fff; 
+            border-color: var(--danger);
+        }
+        
+        .adm-inline { 
+            display: inline-flex; 
+            gap: 8px; 
+            align-items: center; 
+            flex-wrap: wrap; 
+        }
+        .adm-inline .adm-input { 
+            width: auto; 
+            padding: 8px 12px; 
+        }
+        
+        .adm-pill { 
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 10px; 
+            border-radius: var(--radius-full); 
+            font-size: var(--text-xs); 
+            font-weight: 600; 
+            background: var(--primary-50); 
+            color: var(--primary-700); 
+        }
+        .adm-pill.off { 
+            background: var(--danger-bg); 
+            color: var(--danger-text); 
+        }
+    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <script src="{{ url_for('static', filename='js/responsive.js') }}" defer></script>
+</head>
+<body>
+    <!-- SIDEBAR NAVIGASI -->
+    <div class="sidebar">
+        <div>
+            <div class="sidebar-brand">
+                <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" class="brand-logo-img">
+                <div class="brand-text">
+                    <span class="brand-title">E-Jurnal PKL</span>
+                    <span class="brand-subtitle">Panel Admin</span>
+                </div>
+            </div>
+            <div class="sidebar-nav">
+                {% include '_sidebar_admin.html' %}
+
+                <div class="nav-group">
+                    <span class="nav-label">Pantau Data</span>
+                    <ul class="sidebar-menu">
+                        <li><a href="{{ url_for('dashboard_pembimbing') }}"><div class="menu-link-content">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+                            Monitoring Semua Siswa</div></a></li>
+                        <li><a href="{{ url_for('daftar_siswa') }}"><div class="menu-link-content">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                            Daftar Siswa</div></a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN WRAPPER -->
+    <div class="main-wrapper">
+        <div class="navbar">
+            <div class="navbar-title">Kelola Pembimbing</div>
+            <div class="navbar-right" style="display: flex; align-items: center; gap: 12px;">
+                <a href="{{ url_for('profil_pembimbing') }}" class="btn-profile-nav">
+                    <div class="avatar-wrapper">
+                        <div class="nav-avatar-placeholder">{{ session['nama'][0]|upper }}</div>
+                        <span class="status-indicator"></span>
+                    </div>
+                    <span>{{ session['nama'] }}</span>
+                </a>
+                <button type="button" class="btn-logout-nav" onclick="openLogoutModal()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                        <polyline points="16 17 21 12 16 7"></polyline>
+                        <line x1="21" y1="12" x2="9" y2="12"></line>
+                    </svg>
+                    Logout
+                </button>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- FLASH MESSAGES -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+              {% if messages %}
+                {% for category, message in messages %}
+                  <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+              {% endif %}
+            {% endwith %}
+
+            <!-- KONTEN UTAMA -->
+            <div class="adm-panel">
+                <div class="hd">Tambah Akun Pembimbing</div>
+                <div class="bd">
+                    <form method="POST" class="adm-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="aksi" value="tambah">
+                        <div><label>Nama Lengkap *</label><input class="adm-input" type="text" name="nama" required></div>
+                        <div><label>Username *</label><input class="adm-input" type="text" name="username" autocomplete="off" required></div>
+                        <div><label>Password Awal * (min. 6)</label><input class="adm-input" type="text" name="password" minlength="6" autocomplete="off" required></div>
+                        <div>
+                            <label>Role *</label>
+                            <select class="adm-input" name="role" id="roleBaru" onchange="toggleSekolah()" required>
+                                <option value="pembimbing_pkl">Pembimbing PKL</option>
+                                <option value="pembimbing_industri">Pembimbing Industri</option>
+                            </select>
+                        </div>
+                        <div id="wrapSekolah">
+                            <label>Sekolah *</label>
+                            <select class="adm-input" name="sekolah_id" id="sekolahBaru">
+                                <option value="">Pilih Sekolah</option>
+                                {% for k in sekolah_opsi %}<option value="{{ k.id }}">{{ k.nama }}</option>{% endfor %}
+                            </select>
+                        </div>
+                        <div><button type="submit" class="adm-btn primary">Buat Akun</button></div>
+                    </form>
+                    <p style="margin-top:14px;color:var(--text-muted);font-size:var(--text-sm,13px)">Pembimbing PKL hanya dapat memantau (read-only) siswa yang ditetapkan sebagai bimbingannya lewat tombol &quot;Siswa Bimbingan&quot; (dipilih dari siswa sekolahnya). Pembimbing Industri saat ini melihat semua siswa.</p>
+                </div>
+            </div>
+
+            <div class="adm-panel">
+                <div class="hd">Daftar Pembimbing</div>
+                <div class="adm-scroll">
+                    <table class="adm-table">
+                        <thead>
+                            <tr>
+                                <th>Nama</th>
+                                <th>Username</th>
+                                <th>Role</th>
+                                <th>Sekolah</th>
+                                <th>Status</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for u in pembimbing_list %}
+                            <tr>
+                                <td><strong>{{ u.nama }}</strong></td>
+                                <td>{{ u.username }}</td>
+                                <td>{{ 'Pembimbing PKL' if u.role == 'pembimbing_pkl' else 'Pembimbing Industri' }}</td>
+                                <td>
+                                    {% if u.role == 'pembimbing_pkl' %}
+                                    <form method="POST" class="adm-inline">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="aksi" value="ubah_sekolah">
+                                        <input type="hidden" name="user_id" value="{{ u.id }}">
+                                        <select class="adm-input" name="sekolah_id">
+                                            {% if not u.sekolah_id %}<option value="">(belum diatur)</option>{% endif %}
+                                            {% for k in sekolah_opsi %}<option value="{{ k.id }}" {{ 'selected' if k.id == u.sekolah_id else '' }}>{{ k.nama }}</option>{% endfor %}
+                                        </select>
+                                        <button class="adm-btn" type="submit">Ubah</button>
+                                    </form>
+                                    {% else %}<span style="color:var(--text-faint)">Semua</span>{% endif %}
+                                    {% if u.role == 'pembimbing_pkl' and u.sekolah_id %}
+                                    <div style="margin-top:8px">
+                                        <a class="adm-btn" href="{{ url_for('admin_bimbingan', user_id=u.id) }}">Siswa Bimbingan ({{ u.jml_bimbingan }})</a>
+                                    </div>
+                                    {% endif %}
+                                </td>
+                                <td>{% if u.is_active == 0 %}<span class="adm-pill off">Nonaktif</span>{% else %}<span class="adm-pill">Aktif</span>{% endif %}</td>
+                                <td>
+                                    <span class="adm-inline">
+                                        <form method="POST" class="adm-inline">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="aksi" value="toggle">
+                                            <input type="hidden" name="user_id" value="{{ u.id }}">
+                                            <button class="adm-btn {{ 'danger' if u.is_active != 0 else '' }}" type="submit">{{ 'Nonaktifkan' if u.is_active != 0 else 'Aktifkan' }}</button>
+                                        </form>
+                                        <form method="POST" class="adm-inline" onsubmit="return this.password_baru.value.length >= 6 || (alert('Password baru minimal 6 karakter'), false)">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="aksi" value="reset">
+                                            <input type="hidden" name="user_id" value="{{ u.id }}">
+                                            <input class="adm-input" type="text" name="password_baru" placeholder="Password baru" autocomplete="off" style="width:140px">
+                                            <button class="adm-btn" type="submit">Reset</button>
+                                        </form>
+                                    </span>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="6" class="adm-empty">Belum ada akun pembimbing.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL LOGOUT -->
+    <div id="logoutModal" class="modal-overlay">
+        <div class="modal-box-logout">
+            <div class="modal-icon-logout">!</div>
+            <div class="modal-title-logout">Konfirmasi Logout</div>
+            <div class="modal-desc-logout">Apakah Anda yakin ingin keluar dari aplikasi E-Jurnal PKL?</div>
+            <div class="modal-actions-logout">
+                <button type="button" class="btn-modal btn-modal-cancel" onclick="closeLogoutModal()">Batal</button>
+                <a href="{{ url_for('logout') }}" class="btn-modal btn-modal-confirm">Ya, Keluar</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleSekolah() {
+            var pkl = document.getElementById('roleBaru').value === 'pembimbing_pkl';
+            document.getElementById('wrapSekolah').style.display = pkl ? '' : 'none';
+            document.getElementById('sekolahBaru').required = pkl;
+        }
+        toggleSekolah();
+
+        function openLogoutModal() { document.getElementById('logoutModal').style.display = 'flex'; }
+        function closeLogoutModal() { document.getElementById('logoutModal').style.display = 'none'; }
+        window.onclick = function (e) { var m = document.getElementById('logoutModal'); if (e.target === m) closeLogoutModal(); };
+    </script>
+</body>
+</html>

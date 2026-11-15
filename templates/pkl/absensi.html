@@ -1,0 +1,48 @@
+{% extends 'pkl/base.html' %}
+{% set active_menu = 'absensi' %}
+{% block title %}Riwayat Absensi{% endblock %}
+{% block navbar_title %}Riwayat Absensi Siswa Bimbingan{% endblock %}
+{% block content %}
+<div class="adm-panel">
+    <div class="hd">Filter</div>
+    <div class="bd">
+        <form method="GET" class="pkl-filter">
+            <div><label>Tanggal</label><input class="pkl-input" type="date" name="tanggal" value="{{ filter_tanggal }}"></div>
+            <div><label>Nama Siswa</label><input class="pkl-input" type="text" name="nama_siswa" value="{{ filter_nama }}" placeholder="Nama siswa"></div>
+            <div><label>Status</label>
+                <select class="pkl-input" name="status">
+                    <option value="">Semua</option>
+                    {% for st in ['Hadir','Izin','Sakit','Alpa'] %}<option value="{{ st }}" {{ 'selected' if filter_status == st else '' }}>{{ st }}</option>{% endfor %}
+                </select></div>
+            <div style="display:flex; gap:8px;">
+                <button type="submit" class="adm-btn primary">Terapkan</button>
+                <a href="{{ url_for('pkl.absensi') }}" class="adm-btn">Reset</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="adm-panel">
+    <div class="hd">Rekap Absensi <span class="adm-pill">{{ absensi_list|length }} data</span></div>
+    <div class="adm-scroll">
+        <table class="adm-table">
+            <thead><tr><th>Tanggal</th><th>Siswa</th><th>Status</th><th>Jam</th><th>Keterangan</th><th>Lokasi</th><th>Bukti</th></tr></thead>
+            <tbody>
+            {% for a in absensi_list %}
+                <tr>
+                    <td>{{ a.tanggal | pkl_tgl }}</td>
+                    <td><strong>{{ a.nama_siswa }}</strong><br><small style="color:var(--text-faint)">{{ a.kelas_jurusan or '' }}</small></td>
+                    <td><span class="chip {{ a.status|lower }}">{{ a.status }}</span>{% if a.is_manual %} <small style="color:var(--text-faint)">(manual)</small>{% endif %}</td>
+                    <td>{{ a.created_at | pkl_jam }}</td>
+                    <td>{{ a.keterangan or '-' }}</td>
+                    <td>{{ a.lokasi or '-' }}</td>
+                    <td>{% if a.foto_bukti %}<a href="{{ url_for('uploaded_file', filename=a.foto_bukti) }}" target="_blank" rel="noopener"><img class="pkl-thumb-sm" src="{{ url_for('uploaded_file', filename=a.foto_bukti) }}" alt="Bukti"></a>{% else %}-{% endif %}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="7" class="adm-empty">Belum ada data presensi.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,29 @@
+<div class="nav-group">
+    <span class="nav-label">Administrasi</span>
+    <ul class="sidebar-menu">
+        <li>
+            <a href="{{ url_for('dashboard_admin') }}" class="{{ 'active' if request.endpoint == 'dashboard_admin' else '' }}">
+                <div class="menu-link-content">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    Dashboard Admin
+                </div>
+            </a>
+        </li>
+        <li>
+            <a href="{{ url_for('admin_sekolah') }}" class="{{ 'active' if request.endpoint == 'admin_sekolah' else '' }}">
+                <div class="menu-link-content">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg>
+                    Kelola Sekolah
+                </div>
+            </a>
+        </li>
+        <li>
+            <a href="{{ url_for('admin_pembimbing') }}" class="{{ 'active' if request.endpoint == 'admin_pembimbing' else '' }}">
+                <div class="menu-link-content">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    Kelola Pembimbing
+                </div>
+            </a>
+        </li>
+    </ul>
+</div>

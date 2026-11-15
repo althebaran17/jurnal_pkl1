@@ -1,0 +1,38 @@
+{% extends 'pkl/base.html' %}
+{% set active_menu = 'laporan' %}
+{% block title %}Detail Laporan{% endblock %}
+{% block navbar_title %}Detail Laporan Harian{% endblock %}
+{% block content %}
+<div class="adm-panel">
+    <div class="hd">
+        <span>{{ laporan.nama_siswa }} &middot; {{ laporan.tanggal | pkl_tgl }}</span>
+        <a href="{{ url_for('pkl.laporan') }}" class="adm-btn">&larr; Kembali</a>
+    </div>
+    <div class="bd">
+        <dl class="pkl-grid" style="margin:0 0 20px;">
+            <div><dt>NISN</dt><dd>{{ laporan.nisn }}</dd></div>
+            <div><dt>Kelas / Jurusan</dt><dd>{{ laporan.kelas_jurusan or '-' }}</dd></div>
+            <div><dt>Sekolah</dt><dd>{{ laporan.nama_sekolah or '-' }}</dd></div>
+            <div><dt>Status Validasi</dt><dd><span class="chip {{ laporan.status_validasi|lower }}">{{ laporan.status_validasi }}</span></dd></div>
+        </dl>
+
+        <h4 style="margin:0 0 8px;">Deskripsi Kegiatan</h4>
+        <p class="pkl-prewrap">{{ laporan.deskripsi_kegiatan }}</p>
+
+        {% if laporan.alasan_terlambat %}
+            <h4 style="margin:20px 0 8px;">Alasan Terlambat Mengirim</h4>
+            <p class="pkl-prewrap">{{ laporan.alasan_terlambat }}</p>
+        {% endif %}
+
+        {% if laporan.catatan_pembimbing %}
+            <h4 style="margin:20px 0 8px;">Catatan Pembimbing</h4>
+            <p class="pkl-prewrap">{{ laporan.catatan_pembimbing }}</p>
+        {% endif %}
+
+        {% if laporan.foto_bukti %}
+            <h4 style="margin:20px 0 8px;">Foto Bukti</h4>
+            <img class="pkl-thumb" src="{{ url_for('uploaded_file', filename=laporan.foto_bukti) }}" alt="Foto Bukti">
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

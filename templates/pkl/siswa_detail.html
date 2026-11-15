@@ -1,0 +1,74 @@
+{% extends 'pkl/base.html' %}
+{% set active_menu = 'siswa' %}
+{% block title %}Detail Siswa{% endblock %}
+{% block navbar_title %}Detail Siswa Bimbingan{% endblock %}
+{% block content %}
+<div class="adm-panel">
+    <div class="hd">
+        <span>{{ siswa.nama }}</span>
+        <a href="{{ url_for('pkl.siswa') }}" class="adm-btn">&larr; Kembali</a>
+    </div>
+    <div class="bd" style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+        {% if siswa.foto_profil %}
+            <img src="{{ url_for('uploaded_file', filename=siswa.foto_profil) }}" alt="Foto Siswa" class="pkl-thumb" style="max-width:140px;">
+        {% endif %}
+        <dl class="pkl-grid" style="flex:1; margin:0; min-width:260px;">
+            <div><dt>NISN</dt><dd>{{ siswa.nisn }}</dd></div>
+            <div><dt>Kelas / Jurusan</dt><dd>{{ siswa.kelas_jurusan or '-' }}</dd></div>
+            <div><dt>Sekolah</dt><dd>{{ siswa.nama_sekolah or '-' }}</dd></div>
+            <div><dt>Periode PKL</dt><dd>{{ siswa.tgl_mulai_pkl | pkl_tgl }} s/d {{ siswa.tgl_selesai_pkl | pkl_tgl }}</dd></div>
+            <div><dt>No. HP</dt><dd>{{ siswa.no_hp or '-' }}</dd></div>
+            <div><dt>Email</dt><dd>{{ siswa.email or '-' }}</dd></div>
+            <div><dt>Akun</dt><dd>{% if siswa.is_active == 0 %}<span class="chip nonaktif">Nonaktif</span>{% else %}<span class="chip hadir">Aktif</span>{% endif %}</dd></div>
+        </dl>
+    </div>
+</div>
+
+<div class="pkl-stats">
+    <div class="adm-panel"><div class="hd">Hadir</div><div class="bd" style="color:#16A34A;">{{ absensi.hadir }}</div></div>
+    <div class="adm-panel"><div class="hd">Izin</div><div class="bd" style="color:#D97706;">{{ absensi.izin }}</div></div>
+    <div class="adm-panel"><div class="hd">Sakit</div><div class="bd" style="color:#1D4ED8;">{{ absensi.sakit }}</div></div>
+    <div class="adm-panel"><div class="hd">Alpa</div><div class="bd" style="color:#DC2626;">{{ absensi.alpa }}</div></div>
+    <div class="adm-panel"><div class="hd">Laporan (Total)</div><div class="bd">{{ laporan.total }}</div></div>
+    <div class="adm-panel"><div class="hd">Laporan Pending</div><div class="bd" style="color:#D97706;">{{ laporan.pending }}</div></div>
+</div>
+
+<div class="adm-panel">
+    <div class="hd"><span>Absensi Terbaru</span>
+        <a class="adm-btn" href="{{ url_for('pkl.absensi', nama_siswa=siswa.nama) }}">Lihat Semua</a></div>
+    <div class="adm-scroll">
+        <table class="adm-table">
+            <thead><tr><th>Tanggal</th><th>Status</th><th>Keterangan</th></tr></thead>
+            <tbody>
+            {% for a in absensi_terbaru %}
+                <tr><td>{{ a.tanggal | pkl_tgl }}</td><td><span class="chip {{ a.status|lower }}">{{ a.status }}</span></td><td>{{ a.keterangan or '-' }}</td></tr>
+            {% else %}
+                <tr><td colspan="3" class="adm-empty">Belum ada data absensi.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="adm-panel">
+    <div class="hd"><span>Laporan Harian Terbaru</span>
+        <a class="adm-btn" href="{{ url_for('pkl.laporan', siswa_id=siswa.id) }}">Lihat Semua</a></div>
+    <div class="adm-scroll">
+        <table class="adm-table">
+            <thead><tr><th>Tanggal</th><th>Kegiatan</th><th>Status</th><th>Aksi</th></tr></thead>
+            <tbody>
+            {% for l in laporan_terbaru %}
+                <tr>
+                    <td>{{ l.tanggal | pkl_tgl }}</td>
+                    <td>{{ (l.deskripsi_kegiatan or '')[:90] }}{% if (l.deskripsi_kegiatan or '')|length > 90 %}…{% endif %}</td>
+                    <td><span class="chip {{ l.status_validasi|lower }}">{{ l.status_validasi }}</span></td>
+                    <td><a class="adm-btn" href="{{ url_for('pkl.laporan_detail', laporan_id=l.id) }}">Lihat</a></td>
+                </tr>
+            {% else %}
+                <tr><td colspan="4" class="adm-empty">Belum ada laporan harian.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

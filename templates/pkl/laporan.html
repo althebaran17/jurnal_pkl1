@@ -1,0 +1,49 @@
+{% extends 'pkl/base.html' %}
+{% set active_menu = 'laporan' %}
+{% block title %}Laporan Harian{% endblock %}
+{% block navbar_title %}Laporan Harian Siswa Bimbingan{% endblock %}
+{% block content %}
+<div class="adm-panel">
+    <div class="hd">Filter</div>
+    <div class="bd">
+        <form method="GET" class="pkl-filter">
+            <div><label>Siswa</label>
+                <select class="pkl-input" name="siswa_id">
+                    <option value="">Semua siswa</option>
+                    {% for s in dft_siswa %}<option value="{{ s.id }}" {{ 'selected' if filter_siswa == s.id else '' }}>{{ s.nama }}</option>{% endfor %}
+                </select></div>
+            <div><label>Status</label>
+                <select class="pkl-input" name="status">
+                    <option value="">Semua</option>
+                    {% for st in ['Pending','Disetujui','Revisi'] %}<option value="{{ st }}" {{ 'selected' if filter_status == st else '' }}>{{ st }}</option>{% endfor %}
+                </select></div>
+            <div style="display:flex; gap:8px;">
+                <button type="submit" class="adm-btn primary">Terapkan</button>
+                <a href="{{ url_for('pkl.laporan') }}" class="adm-btn">Reset</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="adm-panel">
+    <div class="hd">Laporan Harian <span class="adm-pill">{{ laporan_list|length }} laporan</span></div>
+    <div class="adm-scroll">
+        <table class="adm-table">
+            <thead><tr><th>Tanggal</th><th>Siswa</th><th>Kegiatan</th><th>Status</th><th>Aksi</th></tr></thead>
+            <tbody>
+            {% for l in laporan_list %}
+                <tr>
+                    <td>{{ l.tanggal | pkl_tgl }}</td>
+                    <td><strong>{{ l.nama_siswa }}</strong><br><small style="color:var(--text-faint)">{{ l.kelas_jurusan or '' }}</small></td>
+                    <td>{{ (l.deskripsi_kegiatan or '')[:110] }}{% if (l.deskripsi_kegiatan or '')|length > 110 %}…{% endif %}</td>
+                    <td><span class="chip {{ l.status_validasi|lower }}">{{ l.status_validasi }}</span></td>
+                    <td><a class="adm-btn" href="{{ url_for('pkl.laporan_detail', laporan_id=l.id) }}">Lihat</a></td>
+                </tr>
+            {% else %}
+                <tr><td colspan="5" class="adm-empty">Tidak ada laporan.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

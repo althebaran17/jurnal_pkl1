@@ -1134,7 +1134,9 @@ def uploaded_file(filename):
         finally:
             cursor.close()
             conn.close()
-    resp = send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+        print("UPLOAD FOLDER:", app.config['UPLOAD_FOLDER'])
+        print("FILENAME:", filename)
+        print("FILE EXISTS:", os.path.isfile(os.path.join(app.config['UPLOAD_FOLDER'], filename)))
     resp.headers['Cache-Control'] = 'private, max-age=3600'
     return resp
 

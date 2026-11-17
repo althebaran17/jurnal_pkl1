@@ -1403,13 +1403,20 @@ def laporan_detail(laporan_id):
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
 
+
     cursor.execute("""
-        SELECT l.*, u.nama as nama_siswa, s.kelas_jurusan, s.sekolah 
+        SELECT
+            l.*,
+            u.nama AS nama_siswa,
+            s.kelas_jurusan,
+            sch.nama AS sekolah
         FROM laporan_harian l
         JOIN siswa s ON l.siswa_id = s.id
         JOIN users u ON s.user_id = u.id
+        LEFT JOIN sekolah sch ON s.sekolah_id = sch.id
         WHERE l.id = %s
     """, (laporan_id,))
+
     laporan_data = cursor.fetchone()
 
     cursor.close()

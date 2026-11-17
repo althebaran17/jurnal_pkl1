@@ -413,6 +413,15 @@
                     </div>
                 </div>
 
+            <!-- CONDITIONAL 3b: LEWAT 15:00 WIB -> PRESENSI DITUTUP -->
+            {% elif presensi_tutup %}
+                <div class="card-form">
+                    <div class="card-title">Presensi Ditutup</div>
+                    <div class="alert alert-danger" style="margin-bottom: 0;">
+                        ⛔ Batas presensi pukul <strong>15:00 WIB</strong> sudah lewat. Presensi dan pengajuan terlambat tidak dapat dilakukan lagi hari ini.
+                    </div>
+                </div>
+
             <!-- CONDITIONAL 4: TERLAMBAT BARU ATAU SUDAH DI-ACC (FORM/KAMERA) -->
             {% else %}
                 <div class="card-form">

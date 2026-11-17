@@ -319,6 +319,10 @@
                     <div class="alert alert-success" style="margin-bottom: 0;">
                         ✓ <strong>Informasi Presensi:</strong> Anda sudah melakukan absensi <strong>HADIR</strong> untuk hari ini, sehingga tidak dapat mengajukan Izin/Sakit.
                     </div>
+                {% elif presensi_tutup and not sudah_pengajuan %}
+                    <div class="alert alert-danger" style="margin-bottom: 0;">
+                        ⛔ <strong>Pengajuan Ditutup:</strong> batas waktu pukul <strong>15:00 WIB</strong> sudah lewat, sehingga pengajuan Izin/Sakit tidak dapat dikirim lagi hari ini.
+                    </div>
                 {% elif sudah_pengajuan %}
                     <div class="alert alert-warning" style="margin-bottom: 0;">
                         📌 <strong>Informasi Pengajuan:</strong> Anda sudah mengirimkan pengajuan untuk hari ini. Silakan cek status persetujuan pada tabel riwayat di bawah.

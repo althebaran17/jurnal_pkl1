@@ -255,6 +255,23 @@ def tolak_jika_hari_minggu(kegiatan):
     return None
 
 
+def _ke_tanggal(v):
+    return v.date() if isinstance(v, datetime) else v
+
+
+JAM_TUTUP_PRESENSI = datetime.strptime("15:00:00", "%H:%M:%S").time()
+
+
+def presensi_ditutup():
+    """True bila sudah pukul 15:00 WIB atau lebih.
+
+    Batas ini dicek LANGSUNG di setiap route siswa (presensi, pengajuan terlambat,
+    izin/sakit), tidak bergantung pada ada-tidaknya baris Alpa di database, supaya
+    tidak ada celah (mis. siswa di luar periode PKL, pengajuan terlambat yang baru di-ACC).
+    """
+    return now_wib().time() >= JAM_TUTUP_PRESENSI
+
+
 @app.before_request
 def _pastikan_auto_alpa_jalan():
     # Murah: hanya memeriksa thread sudah hidup atau belum (mis. di bawah gunicorn).
@@ -1005,6 +1022,7 @@ def absensi():
 
     belum_buka = jam_sekarang < jam_buka
     is_terlambat = jam_sekarang >= jam_batas_terlambat
+    presensi_tutup = presensi_ditutup()
 
     # 1. Cek absensi hari ini (Termasuk jika sudah di-set Alpa otomatis)
     cursor.execute("SELECT * FROM absensi WHERE siswa_id = %s AND tanggal = %s", (siswa_id, today_str))
@@ -1027,6 +1045,13 @@ def absensi():
     pengajuan_izin_sakit = cursor.fetchone()
 
     if request.method == 'POST':
+        # CEK 0: Setelah pukul 15:00 WIB presensi & pengajuan terlambat DITUTUP (tanpa kecuali)
+        if presensi_tutup and not absensi_hari_ini:
+            flash('Presensi telah ditutup pukul 15:00 WIB. Presensi dan pengajuan terlambat tidak dapat dilakukan lagi hari ini.', 'danger')
+            cursor.close()
+            conn.close()
+            return redirect(url_for('absensi'))
+
         # CEK A: Mencegah absen jika belum pukul 09:00 WIB
         if belum_buka:
             flash('Presensi belum dibuka! Sistem presensi baru dibuka pada pukul 09:00 WIB.', 'warning')
@@ -1135,6 +1160,7 @@ def absensi():
                            pengajuan_terlambat=pengajuan_terlambat,
                            pengajuan_izin_sakit=pengajuan_izin_sakit,
                            is_terlambat=is_terlambat,
+                           presensi_tutup=presensi_tutup,
                            siswa=siswa)
 
 
@@ -1750,7 +1776,16 @@ def pengajuan_absensi():
     pengajuan_today = cursor.fetchone()
     sudah_pengajuan = True if pengajuan_today else False
 
+    presensi_tutup = presensi_ditutup()
+
     if request.method == 'POST':
+        # CEK 0: Setelah pukul 15:00 WIB pengajuan Izin/Sakit ditutup
+        if presensi_tutup and not absensi_today:
+            flash('Pengajuan Izin/Sakit telah ditutup pukul 15:00 WIB untuk hari ini.', 'danger')
+            cursor.close()
+            conn.close()
+            return redirect(url_for('pengajuan_absensi'))
+
         # CEK A: Jika sudah Hadir
         if sudah_hadir:
             flash('Anda sudah mengisi absensi hadir hari ini, sehingga tidak dapat mengajukan izin/sakit.', 'danger')
@@ -1815,6 +1850,7 @@ def pengajuan_absensi():
         today=today_str,
         sudah_hadir=sudah_hadir,
         sudah_alpa=sudah_alpa, # Variabel baru dikirim ke HTML
+        presensi_tutup=presensi_tutup,
         sudah_pengajuan=sudah_pengajuan
     )
 
@@ -1978,7 +2014,9 @@ def proses_pengajuan(id, aksi):
 
             conn.commit()
             
-            if p['jenis'] == 'Terlambat' and aksi == 'Disetujui':
+            if p['jenis'] == 'Terlambat' and aksi == 'Disetujui' and _ke_tanggal(p['tanggal']) == today_wib() and presensi_ditutup():
+                flash("Pengajuan Terlambat di ACC, tetapi sudah lewat pukul 15:00 WIB sehingga siswa tidak bisa lagi presensi selfie hari ini. Gunakan Absen Manual bila perlu mencatat kehadirannya.", 'warning')
+            elif p['jenis'] == 'Terlambat' and aksi == 'Disetujui':
                 flash(f"Pengajuan Terlambat di ACC. Siswa sekarang sudah bisa melakukan absensi foto selfie.", 'success')
             else:
                 flash(f"Pengajuan {p['jenis']} berhasil di {aksi}!", 'success')

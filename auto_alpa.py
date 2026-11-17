@@ -25,8 +25,8 @@ Aturan (sama dengan aturan lama, hanya dibuat massal)
   yang terlewat (server mati / thread belum jalan) ikut disusulkan.
 * Tidak dicatat Alpa bila sudah ada baris absensi, atau ada pengajuan
   Izin/Sakit berstatus Pending/Disetujui. Pengajuan Terlambat yang
-  Pending/Disetujui hanya membebaskan HARI INI (siswa masih boleh selfie
-  setelah di-ACC); pada hari yang sudah lewat tetap dihitung Alpa.
+  Pending/Disetujui hanya membebaskan HARI INI sebelum pukul 15:00; setelah
+  15:00 (batas presensi) siswa yang belum selfie tetap dicatat Alpa.
 
 Penyisipan memakai INSERT ... WHERE NOT EXISTS sehingga aman bila beberapa
 proses/worker berjalan bersamaan.
@@ -102,7 +102,7 @@ def hitung_alpa_tertunda(siswa_rows, absensi_ada, pengajuan_bebas, pengajuan_ter
                 bebas = (
                     kunci in absensi_ada
                     or kunci in pengajuan_bebas
-                    or (d == hari_ini and kunci in pengajuan_terlambat)
+                    or (d == hari_ini and kunci in pengajuan_terlambat and not sudah_lewat_batas)
                 )
                 if not bebas:
                     hasil.append(kunci)

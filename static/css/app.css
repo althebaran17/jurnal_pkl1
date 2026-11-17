@@ -489,6 +489,40 @@ input:focus, select:focus, textarea:focus {
     opacity: 1;
 }
 
+/* Badge notifikasi di menu sidebar (izin/sakit & laporan pending) */
+.sidebar-menu a { justify-content: space-between; }
+
+.menu-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 7px;
+    margin-left: auto;
+    border-radius: var(--radius-full, 999px);
+    background-color: var(--danger);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0;
+    box-shadow: 0 0 0 2px var(--sidebar-bg);
+    flex-shrink: 0;
+    animation: menu-badge-pulse 2.4s ease-in-out infinite;
+}
+
+.sidebar-menu a.active .menu-badge { box-shadow: 0 0 0 2px #1e1b4b; }
+
+@keyframes menu-badge-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.12); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .menu-badge { animation: none; }
+}
+
 /* ================= MAIN WRAPPER & NAVBAR ================= */
 .main-wrapper {
     margin-left: var(--sidebar-width);

@@ -176,8 +176,8 @@
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
                                     Persetujuan Izin/Sakit
                                 </div>
-                                {% if pengajuan and pengajuan.pending_izin > 0 %}
-                                    <span class="menu-badge">{{ pengajuan.pending_izin }}</span>
+                                {% if notif_pengajuan > 0 %}
+                                    <span class="menu-badge">{{ notif_pengajuan }}</span>
                                 {% endif %}
                             </a>
                         </li>
@@ -202,7 +202,7 @@
                                     Validasi Laporan
                                 </div>
                                 {% if laporan and laporan.pending and laporan.pending > 0 %}
-                                    <span class="menu-badge">{{ laporan.pending }}</span>
+                                    <span class="menu-badge">{{ notif_laporan }}</span>
                                 {% endif %}
                             </a>
                         </li>

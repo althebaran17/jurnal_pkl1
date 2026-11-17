@@ -414,7 +414,7 @@
                 <a href="{{ url_for('profil') }}" class="btn-profile-nav">
                     <div class="avatar-wrapper">
                         {% if siswa and siswa.foto_profil %}
-                            <img src="{{ url_for('static', filename='uploads/profil/' ~ siswa.foto_profil) }}" alt="Foto" class="nav-avatar">
+                            <img src="{{ url_for('foto_profil_file', filename=siswa.foto_profil) }}" alt="Foto" class="nav-avatar">
                         {% else %}
                             <div class="nav-avatar-placeholder">
                                 {{ session['nama'][0]|upper }}
@@ -458,7 +458,7 @@
 
                     <div class="profile-photo-wrapper">
                         {% if siswa and siswa.foto_profil %}
-                            <img src="{{ url_for('static', filename='uploads/profil/' ~ siswa.foto_profil) }}" alt="Foto Profil" class="profile-photo">
+                            <img src="{{ url_for('foto_profil_file', filename=siswa.foto_profil) }}" alt="Foto Profil" class="profile-photo">
                         {% else %}
                             <div class="profile-photo-placeholder">
                                 {{ siswa.nama[0]|upper if siswa else session['nama'][0]|upper }}
@@ -602,7 +602,7 @@
                     <label for="foto_profil_input">Unggah Foto Profil Baru</label>
                     <div class="profile-photo-wrapper" style="margin-bottom: 12px;">
                         {% if siswa and siswa.foto_profil %}
-                            <img id="previewFotoProfil" src="{{ url_for('static', filename='uploads/profil/' ~ siswa.foto_profil) }}" alt="Preview Foto" class="profile-photo">
+                            <img id="previewFotoProfil" src="{{ url_for('foto_profil_file', filename=siswa.foto_profil) }}" alt="Preview Foto" class="profile-photo">
                         {% else %}
                             <img id="previewFotoProfil" src="" alt="Preview Foto" class="profile-photo" style="display: none;">
                             <div id="placeholderPreview" class="profile-photo-placeholder">

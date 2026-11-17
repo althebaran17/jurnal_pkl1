@@ -119,8 +119,19 @@ def reset_login_gagal(username):
 # PERBAIKAN: Tentukan Absolute Path & Ekstensi File yang Diizinkan
 # =========================================================
 # Menyimpan direktori upload secara absolut di folder static/uploads/profil
-UPLOAD_FOLDER_PROFIL = os.path.join(app.root_path, 'static', 'uploads', 'profil')
+# Railway: disk container bersifat sementara (terhapus tiap deploy/restart). Agar foto TIDAK hilang,
+# pasang Railway Volume; path mount-nya otomatis tersedia di RAILWAY_VOLUME_MOUNT_PATH
+# (atau isi manual lewat variabel UPLOAD_DIR). Tanpa volume -> memakai folder lokal seperti sebelumnya.
+_VOLUME_DIR = os.environ.get('UPLOAD_DIR') or os.environ.get('RAILWAY_VOLUME_MOUNT_PATH')
+if _VOLUME_DIR:
+    app.config['UPLOAD_FOLDER'] = os.path.join(_VOLUME_DIR, 'uploads')
+    UPLOAD_FOLDER_PROFIL = os.path.join(_VOLUME_DIR, 'uploads', 'profil')
+else:
+    UPLOAD_FOLDER_PROFIL = os.path.join(app.root_path, 'static', 'uploads', 'profil')
 app.config['UPLOAD_FOLDER_PROFIL'] = UPLOAD_FOLDER_PROFIL
+os.makedirs(UPLOAD_FOLDER_PROFIL, exist_ok=True)
+if app.config.get('UPLOAD_FOLDER'):
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
 
@@ -287,6 +298,37 @@ def inject_siswa():
         except Exception:
             return dict(siswa=None)
     return dict(siswa=None)
+
+@app.context_processor
+def inject_notif_staff():
+    """Angka badge sidebar (izin/sakit & laporan pending) untuk SEMUA halaman staf.
+
+    Sebelumnya angka ini hanya dikirim oleh route dashboard, sehingga di halaman lain
+    badge tidak muncul / error.
+    """
+    notif = dict(notif_pengajuan=0, notif_laporan=0)
+    if is_staff():
+        conn = None
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            sc, scp = scope_sekolah('s')
+            cursor.execute(
+                "SELECT COUNT(*) FROM pengajuan_absensi p JOIN siswa s ON p.siswa_id = s.id "
+                "WHERE p.status_pengajuan = 'Pending'" + sc, tuple(scp))
+            notif['notif_pengajuan'] = cursor.fetchone()[0] or 0
+            cursor.execute(
+                "SELECT COUNT(*) FROM laporan_harian l JOIN siswa s ON l.siswa_id = s.id "
+                "WHERE l.status_validasi = 'Pending'" + sc, tuple(scp))
+            notif['notif_laporan'] = cursor.fetchone()[0] or 0
+            cursor.close()
+        except Exception:
+            pass
+        finally:
+            if conn:
+                conn.close()
+    return notif
+
 
 @app.route('/')
 def index():
@@ -1134,9 +1176,27 @@ def uploaded_file(filename):
         finally:
             cursor.close()
             conn.close()
-        print("UPLOAD FOLDER:", app.config['UPLOAD_FOLDER'])
-        print("FILENAME:", filename)
-        print("FILE EXISTS:", os.path.isfile(os.path.join(app.config['UPLOAD_FOLDER'], filename)))
+
+    # Admin / pembimbing industri boleh semua file. Cari di folder bukti, lalu folder foto profil.
+    folder = app.config['UPLOAD_FOLDER']
+    if not os.path.isfile(os.path.join(folder, filename)):
+        folder = app.config['UPLOAD_FOLDER_PROFIL']
+    if not os.path.isfile(os.path.join(folder, filename)):
+        abort(404)
+    resp = send_from_directory(folder, filename)
+    resp.headers['Cache-Control'] = 'private, max-age=3600'
+    return resp
+
+
+# Foto profil disajikan lewat route (bukan /static) supaya ikut folder Volume Railway.
+@app.route('/foto-profil/<path:filename>')
+def foto_profil_file(filename):
+    if not is_logged_in():
+        abort(403)
+    folder = app.config['UPLOAD_FOLDER_PROFIL']
+    if not os.path.isfile(os.path.join(folder, filename)):
+        abort(404)
+    resp = send_from_directory(folder, filename)
     resp.headers['Cache-Control'] = 'private, max-age=3600'
     return resp
 
@@ -2281,6 +2341,23 @@ def update_profil_pembimbing():
 
     if not nama:
         flash('Nama lengkap wajib diisi!', 'danger')
+        return redirect(url_for('profil_pembimbing'))
+
+    # Admin tidak punya data perusahaan: hanya nama yang disimpan.
+    if session.get('role') == 'admin':
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("UPDATE users SET nama = %s WHERE id = %s", (nama, user_id))
+            conn.commit()
+            session['nama'] = nama
+            flash('Profil Administrator berhasil diperbarui!', 'success')
+        except mysql.connector.Error as e:
+            conn.rollback()
+            flash(f'Gagal memperbarui profil: {e}', 'danger')
+        finally:
+            cursor.close()
+            conn.close()
         return redirect(url_for('profil_pembimbing'))
 
     conn = get_db_connection()

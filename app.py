@@ -255,6 +255,25 @@ def tolak_jika_hari_minggu(kegiatan):
     return None
 
 
+BULAN_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli',
+            'Agustus', 'September', 'Oktober', 'November', 'Desember']
+
+
+def tgl_indo(v):
+    """2026-11-17 -> '17 November 2026' (tanpa tergantung locale server)."""
+    if isinstance(v, str):
+        try:
+            v = datetime.strptime(v[:10], '%Y-%m-%d')
+        except ValueError:
+            return v
+    if v is None or v == '':
+        return '-'
+    return f"{v.day} {BULAN_ID[v.month - 1]} {v.year}"
+
+
+app.jinja_env.filters['tgl_indo'] = tgl_indo
+
+
 def _ke_tanggal(v):
     return v.date() if isinstance(v, datetime) else v
 
@@ -1878,12 +1897,17 @@ def cetak_absensi():
 
     # 1. Detail Siswa
     cursor.execute("""
-        SELECT s.*, u.nama, u.username
+        SELECT s.*, u.nama, u.username, k.nama AS nama_sekolah
         FROM siswa s
         JOIN users u ON s.user_id = u.id
+        LEFT JOIN sekolah k ON s.sekolah_id = k.id
         WHERE s.id = %s
     """, (siswa_id,))
     detail_siswa = cursor.fetchone()
+    if not detail_siswa:
+        cursor.close()
+        conn.close()
+        abort(404)
 
     # 2. Daftar Absensi
     cursor.execute("""
@@ -1931,12 +1955,17 @@ def cetak_laporan():
 
     # 1. Detail Siswa
     cursor.execute("""
-        SELECT s.*, u.nama, u.username
+        SELECT s.*, u.nama, u.username, k.nama AS nama_sekolah
         FROM siswa s
         JOIN users u ON s.user_id = u.id
+        LEFT JOIN sekolah k ON s.sekolah_id = k.id
         WHERE s.id = %s
     """, (siswa_id,))
     detail_siswa = cursor.fetchone()
+    if not detail_siswa:
+        cursor.close()
+        conn.close()
+        abort(404)
 
     # 2. Daftar Laporan Mingguan
     cursor.execute("""
@@ -2624,249 +2653,188 @@ def tandai_dilihat(id):
 
 @app.route('/pembimbing/ekspor-absensi')
 def ekspor_absensi():
-  if not is_staff():
-    flash('Akses ditolak.', 'danger')
-    return redirect(url_for('login'))
+    if not is_staff():
+        flash('Akses ditolak.', 'danger')
+        return redirect(url_for('login'))
 
-  conn = get_db_connection()
-  cursor = conn.cursor(dictionary=True, buffered=True)
+    conn = get_db_connection()
+    if not conn:
+        flash('Gagal terhubung ke database.', 'danger')
+        return redirect(url_for('riwayat_absensi'))
+    cursor = conn.cursor(dictionary=True, buffered=True)
 
-  # Ambil data rekap absensi seluruh siswa
-  sc, scp = scope_sekolah('s')
-  cursor.execute("""
-        SELECT 
-            u.nama AS nama, 
-            s.nisn AS nis, 
-            s.kelas_jurusan,
-            SUM(CASE WHEN a.status = 'Hadir' THEN 1 ELSE 0 END) AS total_hadir,
-            SUM(CASE WHEN a.status = 'Izin' THEN 1 ELSE 0 END) AS total_izin,
-            SUM(CASE WHEN a.status = 'Sakit' THEN 1 ELSE 0 END) AS total_sakit
-        FROM siswa s
-        JOIN users u ON s.user_id = u.id
-        LEFT JOIN absensi a ON s.id = a.siswa_id
-        WHERE 1=1""" + sc + """
-        GROUP BY s.id, u.nama, s.nisn, s.kelas_jurusan
-        ORDER BY u.nama ASC
-    """, tuple(scp))
-  rekap_data = cursor.fetchall()
-  cursor.close()
-  conn.close()
+    # Rekap absensi seluruh siswa (Hadir / Izin / Sakit / Alpa)
+    sc, scp = scope_sekolah('s')
+    try:
+        cursor.execute("""
+            SELECT
+                u.nama AS nama,
+                s.nisn AS nis,
+                s.kelas_jurusan,
+                k.nama AS nama_sekolah,
+                COALESCE(SUM(a.status = 'Hadir'), 0) AS total_hadir,
+                COALESCE(SUM(a.status = 'Izin'), 0)  AS total_izin,
+                COALESCE(SUM(a.status = 'Sakit'), 0) AS total_sakit,
+                COALESCE(SUM(a.status = 'Alpa'), 0)  AS total_alpa
+            FROM siswa s
+            JOIN users u ON s.user_id = u.id
+            LEFT JOIN sekolah k ON s.sekolah_id = k.id
+            LEFT JOIN absensi a ON s.id = a.siswa_id
+            WHERE 1=1""" + sc + """
+            GROUP BY s.id, u.nama, s.nisn, s.kelas_jurusan, k.nama
+            ORDER BY u.nama ASC
+        """, tuple(scp))
+        rekap_data = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
 
-  # --- MEMBUAT FILE EXCEL YANG RAPI (OPENPYXL) ---
-  wb = openpyxl.Workbook()
-  ws = wb.active
-  ws.title = "Rekap Absensi PKL"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Rekap Absensi PKL"
+    ws.sheet_view.showGridLines = False
 
-  # Pastikan gridlines (garis kotak excel) terlihat jelas
-  ws.views.sheetView[0].showGridLines = True
+    # Font umum (tersedia di Excel/LibreOffice di semua komputer)
+    FONT = 'Calibri'
 
-  # 🎨 DEFINISI STYLES & PALET WARNA
-  font_family = 'Plus Jakarta Sans'
+    def fnt(**kw):
+        return Font(name=FONT, size=kw.pop('size', 11), **kw)
 
-  title_font = Font(name=font_family, size=14, bold=True, color="0F172A")
-  subtitle_font = Font(name=font_family, size=9, italic=True, color="64748B")
+    def fill(hex_):
+        return PatternFill(start_color=hex_, end_color=hex_, fill_type='solid')
 
-  header_fill = PatternFill(
-      start_color="4F46E5", end_color="4F46E5", fill_type="solid"
-  )
-  header_font = Font(name=font_family, size=10, bold=True, color="FFFFFF")
+    def sisi(color):
+        return Side(style='thin', color=color)
 
-  regular_font = Font(name=font_family, size=10, color="0F172A")
-  bold_font = Font(name=font_family, size=10, bold=True, color="0F172A")
-  zebra_fill = PatternFill(
-      start_color="F8FAFC", end_color="F8FAFC", fill_type="solid"
-  )
-  white_fill = PatternFill(
-      start_color="FFFFFF", end_color="FFFFFF", fill_type="solid"
-  )
+    thin = Border(left=sisi('CBD5E1'), right=sisi('CBD5E1'), top=sisi('CBD5E1'), bottom=sisi('CBD5E1'))
+    total_border = Border(left=sisi('94A3B8'), right=sisi('94A3B8'), top=sisi('94A3B8'),
+                          bottom=Side(style='double', color='0F172A'))
 
-  hadir_fill = PatternFill(
-      start_color="DCFCE7", end_color="DCFCE7", fill_type="solid"
-  )
-  hadir_font = Font(name=font_family, size=10, bold=True, color="15803D")
+    # Warna per status: (latar, teks)
+    warna = {
+        'hadir': ('DCFCE7', '15803D'),
+        'izin':  ('FEF3C7', 'B45309'),
+        'sakit': ('DBEAFE', '1D4ED8'),
+        'alpa':  ('FEE2E2', 'B91C1C'),
+    }
 
-  izin_fill = PatternFill(
-      start_color="FEF3C7", end_color="FEF3C7", fill_type="solid"
-  )
-  izin_font = Font(name=font_family, size=10, bold=True, color="B45309")
+    headers = ['No', 'NISN', 'Nama Siswa', 'Kelas / Jurusan', 'Sekolah', 'Hadir', 'Izin', 'Sakit', 'Alpa']
+    n_kol = len(headers)
+    kol_akhir = get_column_letter(n_kol)
 
-  sakit_fill = PatternFill(
-      start_color="FEE2E2", end_color="FEE2E2", fill_type="solid"
-  )
-  sakit_font = Font(name=font_family, size=10, bold=True, color="B91C1C")
+    # Judul
+    ws.merge_cells(f'A1:{kol_akhir}1')
+    ws['A1'] = 'REKAPITULASI PRESENSI SISWA PKL'
+    ws['A1'].font = fnt(size=15, bold=True, color='0F172A')
+    ws['A1'].alignment = Alignment(horizontal='center', vertical='center')
+    ws.row_dimensions[1].height = 30
 
-  thin_border = Border(
-      left=Side(style='thin', color='CBD5E1'),
-      right=Side(style='thin', color='CBD5E1'),
-      top=Side(style='thin', color='CBD5E1'),
-      bottom=Side(style='thin', color='CBD5E1'),
-  )
+    ws.merge_cells(f'A2:{kol_akhir}2')
+    ws['A2'] = f"Sistem Informasi E-Jurnal PKL — Tanggal Cetak: {tgl_indo(today_wib())}"
+    ws['A2'].font = fnt(size=10, italic=True, color='64748B')
+    ws['A2'].alignment = Alignment(horizontal='center', vertical='center')
+    ws.row_dimensions[2].height = 18
+    ws.row_dimensions[3].height = 8
 
-  total_border = Border(
-      left=Side(style='thin', color='94A3B8'),
-      right=Side(style='thin', color='94A3B8'),
-      top=Side(style='thin', color='94A3B8'),
-      bottom=Side(style='double', color='0F172A'),
-  )
+    # Header tabel (baris 4)
+    ws.row_dimensions[4].height = 26
+    for c, h in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=c, value=h)
+        cell.fill = fill('4F46E5')
+        cell.font = fnt(bold=True, color='FFFFFF')
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        cell.border = thin
 
-  # 1. HEADER JUDUL LAPORAN (CENTRALIZED / DI TENGAH)
-  ws.merge_cells('A1:G1')
-  ws['A1'] = 'REKAPITULASI PRESENSI SISWA PKL'
-  ws['A1'].font = title_font
-  ws['A1'].alignment = Alignment(horizontal='center', vertical='center')
-  ws.row_dimensions[1].height = 28
+    def set_teks(cell, nilai):
+        """Tulis sebagai TEKS murni (mencegah nama/NISN berawalan = + - @ dibaca sebagai rumus)."""
+        cell.value = nilai
+        cell.data_type = 's'
 
-  ws.merge_cells('A2:G2')
-  ws['A2'] = (
-      'Sistem Informasi E-Jurnal PKL — Tanggal Cetak:'
-      f" {today_wib().strftime('%d %B %Y')}"
-  )
-  ws['A2'].font = subtitle_font
-  ws['A2'].alignment = Alignment(horizontal='center', vertical='center')
-  ws.row_dimensions[2].height = 18
+    start_row = 5
+    total = {'hadir': 0, 'izin': 0, 'sakit': 0, 'alpa': 0}
+    for idx, row in enumerate(rekap_data, 1):
+        r = start_row + idx - 1
+        ws.row_dimensions[r].height = 22
+        bg = fill('F8FAFC') if idx % 2 == 0 else fill('FFFFFF')
 
-  ws.row_dimensions[3].height = 10
+        teks = [
+            (1, idx, 'center'),
+            (2, str(row['nis'] or '-'), 'center'),
+            (3, row['nama'] or '-', 'left'),
+            (4, row['kelas_jurusan'] or '-', 'center'),
+            (5, row['nama_sekolah'] or '-', 'left'),
+        ]
+        for col, val, al in teks:
+            cell = ws.cell(row=r, column=col)
+            if isinstance(val, str):
+                set_teks(cell, val)
+            else:
+                cell.value = val
+            cell.alignment = Alignment(horizontal=al, vertical='center')
+            cell.font = fnt(color='0F172A')
+            cell.fill = bg
+            cell.border = thin
 
-  # 2. HEADER TABEL (Baris 4)
-  headers = [
-      'No',
-      'NISN',
-      'Nama Siswa',
-      'Kelas / Jurusan',
-      'Hadir',
-      'Izin',
-      'Sakit',
-  ]
-  ws.row_dimensions[4].height = 26
+        for col, kunci in ((6, 'hadir'), (7, 'izin'), (8, 'sakit'), (9, 'alpa')):
+            nilai = int(row[f'total_{kunci}'] or 0)
+            total[kunci] += nilai
+            cell = ws.cell(row=r, column=col, value=nilai)
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.border = thin
+            if nilai > 0:
+                cell.fill = fill(warna[kunci][0])
+                cell.font = fnt(bold=True, color=warna[kunci][1])
+            else:
+                cell.fill = bg
+                cell.font = fnt(color='94A3B8')
 
-  for col_num, header in enumerate(headers, 1):
-    cell = ws.cell(row=4, column=col_num, value=header)
-    cell.fill = header_fill
-    cell.font = header_font
-    cell.alignment = Alignment(
-        horizontal='center', vertical='center', wrap_text=True
+    # Baris total: nilai dihitung di Python (bukan rumus) supaya langsung tampil
+    # juga di pratinjau HP / Google Drive / pembaca yang tidak menghitung ulang.
+    total_row = start_row + len(rekap_data)
+    ws.row_dimensions[total_row].height = 24
+    ws.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=5)
+    lbl = ws.cell(row=total_row, column=1, value='TOTAL KESELURUHAN')
+    lbl.font = fnt(bold=True, color='0F172A')
+    lbl.alignment = Alignment(horizontal='right', vertical='center')
+    for col in range(1, 6):
+        ws.cell(row=total_row, column=col).border = total_border
+    for col, kunci in ((6, 'hadir'), (7, 'izin'), (8, 'sakit'), (9, 'alpa')):
+        cell = ws.cell(row=total_row, column=col, value=total[kunci])
+        cell.font = fnt(bold=True, color='0F172A')
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.border = total_border
+
+    # Lebar kolom: dihitung dari data (judul & baris total digabung -> diabaikan)
+    lebar_min = {1: 6, 2: 16, 3: 28, 4: 18, 5: 28, 6: 10, 7: 10, 8: 10, 9: 10}
+    for col in range(1, n_kol + 1):
+        terpanjang = len(headers[col - 1])
+        for r in range(start_row, start_row + len(rekap_data)):
+            v = ws.cell(row=r, column=col).value
+            if v is not None:
+                terpanjang = max(terpanjang, len(str(v)))
+        ws.column_dimensions[get_column_letter(col)].width = min(max(terpanjang + 4, lebar_min[col]), 50)
+
+    # Kenyamanan: header terkunci, filter, siap cetak A4 landscape
+    ws.freeze_panes = 'A5'
+    if rekap_data:
+        ws.auto_filter.ref = f"A4:{kol_akhir}{start_row + len(rekap_data) - 1}"
+    ws.page_setup.orientation = 'landscape'
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_title_rows = '4:4'
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f"Rekap_Absensi_PKL_{today_wib().strftime('%Y%m%d')}.xlsx",
     )
-    cell.border = thin_border
-
-  # 3. ISI DATA TABEL (Mulai Baris 5)
-  start_row = 5
-  for idx, row in enumerate(rekap_data, 1):
-    current_row = start_row + idx - 1
-    ws.row_dimensions[current_row].height = 22
-    row_bg = zebra_fill if idx % 2 == 0 else white_fill
-
-    row_values = [
-        (idx, 'center', regular_font, row_bg),
-        (str(row['nis'] or '-'), 'center', regular_font, row_bg),
-        (row['nama'] or '-', 'left', regular_font, row_bg),
-        (row['kelas_jurusan'] or '-', 'center', regular_font, row_bg),
-    ]
-
-    for col_idx, (val, align, font, bg) in enumerate(row_values, 1):
-      cell = ws.cell(row=current_row, column=col_idx, value=val)
-      cell.alignment = Alignment(horizontal=align, vertical='center')
-      cell.font = font
-      cell.fill = bg
-      cell.border = thin_border
-
-    # Status Hadir
-    h_val = row['total_hadir'] or 0
-    c5 = ws.cell(row=current_row, column=5, value=h_val)
-    c5.alignment = Alignment(horizontal='center', vertical='center')
-    c5.fill = hadir_fill if h_val > 0 else row_bg
-    c5.font = hadir_font if h_val > 0 else regular_font
-    c5.border = thin_border
-
-    # Status Izin
-    i_val = row['total_izin'] or 0
-    c6 = ws.cell(row=current_row, column=6, value=i_val)
-    c6.alignment = Alignment(horizontal='center', vertical='center')
-    c6.fill = izin_fill if i_val > 0 else row_bg
-    c6.font = izin_font if i_val > 0 else regular_font
-    c6.border = thin_border
-
-    # Status Sakit
-    s_val = row['total_sakit'] or 0
-    c7 = ws.cell(row=current_row, column=7, value=s_val)
-    c7.alignment = Alignment(horizontal='center', vertical='center')
-    c7.fill = sakit_fill if s_val > 0 else row_bg
-    c7.font = sakit_font if s_val > 0 else regular_font
-    c7.border = thin_border
-
-  # 4. BARIS TOTAL KESELURUHAN (DI LUAR LOOP DATA SISWA)
-  total_row = start_row + len(rekap_data)
-  ws.row_dimensions[total_row].height = 24
-
-  ws.merge_cells(
-      start_row=total_row, start_column=1, end_row=total_row, end_column=4
-  )
-  t_label = ws.cell(row=total_row, column=1, value="TOTAL KESELURUHAN")
-  t_label.font = bold_font
-  t_label.alignment = Alignment(horizontal='right', vertical='center')
-
-  # Pasang border pada kolom 1 sampai 4
-  for col_idx in range(1, 5):
-    ws.cell(row=total_row, column=col_idx).border = total_border
-
-  # Formula SUM Excel
-  last_data_row = total_row - 1
-  if len(rekap_data) > 0:
-    t_hadir = ws.cell(
-        row=total_row, column=5, value=f"=SUM(E5:E{last_data_row})"
-    )
-    t_izin = ws.cell(
-        row=total_row, column=6, value=f"=SUM(F5:F{last_data_row})"
-    )
-    t_sakit = ws.cell(
-        row=total_row, column=7, value=f"=SUM(G5:G{last_data_row})"
-    )
-  else:
-    t_hadir = ws.cell(row=total_row, column=5, value=0)
-    t_izin = ws.cell(row=total_row, column=6, value=0)
-    t_sakit = ws.cell(row=total_row, column=7, value=0)
-
-  for cell_t in [t_hadir, t_izin, t_sakit]:
-    cell_t.font = bold_font
-    cell_t.alignment = Alignment(horizontal='center', vertical='center')
-    cell_t.border = total_border
-
-  # 5. PERHITUNGAN AUTOFIT LEBAR KOLOM (Mengabaikan Judul A1 & A2)
-  min_widths = {1: 8, 2: 18, 3: 28, 4: 20, 5: 12, 6: 12, 7: 12}
-
-  for col in ws.columns:
-    col_idx = col[0].column
-    col_letter = get_column_letter(col_idx)
-    max_len = 0
-
-    for cell in col:
-      # Abaikan baris 1 & 2 (judul merged)
-      if cell.row in [1, 2]:
-        continue
-
-      if cell.value is not None:
-        val_str = str(cell.value)
-        if len(val_str) > max_len:
-          max_len = len(val_str)
-
-    calculated_width = max_len + 4
-    default_min = min_widths.get(col_idx, 12)
-    ws.column_dimensions[col_letter].width = max(calculated_width, default_min)
-
-  # 6. SIMPAN & RESPONSE
-  output = io.BytesIO()
-  wb.save(output)
-  output.seek(0)
-
-  filename = f"Rekap_Absensi_PKL_{today_wib().strftime('%Y%m%d')}.xlsx"
-
-  return send_file(
-      output,
-      mimetype=(
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-      ),
-      as_attachment=True,
-      download_name=filename,
-  )
 
 # =========================================================
 # MODUL ADMIN: dashboard global, kelola sekolah, kelola pembimbing

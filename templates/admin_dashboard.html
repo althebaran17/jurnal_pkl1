@@ -216,6 +216,19 @@
             font-size: var(--text-base); 
             margin-bottom: 24px; 
         }
+    
+        @media (max-width: 640px) {
+            .adm-panel > .hd { padding: 14px 16px; flex-wrap: wrap; gap: 8px; }
+            .adm-panel > .bd { padding: 16px; }
+            .adm-table th, .adm-table td { padding: 12px 14px; }
+            .adm-stat { padding: 16px; }
+            .adm-stat .val { font-size: 24px; }
+            .adm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+            .adm-form { grid-template-columns: 1fr; }
+            .adm-input { font-size: 16px; }
+            .adm-inline { width: 100%; }
+            .adm-inline .adm-input { flex: 1 1 140px; min-width: 0; }
+        }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
     <script src="{{ url_for('static', filename='js/responsive.js') }}" defer></script>

@@ -110,6 +110,14 @@
                 padding: 20px;
             }
         }
+    
+        .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+        @media (max-width: 600px) {
+            .grid-2col { grid-template-columns: 1fr; }
+            .btn-group { flex-direction: column-reverse; }
+            .btn-group .btn-action-custom { width: 100%; flex: none !important; }
+            .form-control { font-size: 16px; }
+        }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
     <script src="{{ url_for('static', filename='js/responsive.js') }}" defer></script>
@@ -277,7 +285,7 @@
                         </select>
                     </div>
 
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+                    <div class="grid-2col">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="tgl_mulai_pkl">Tanggal Mulai PKL</label>
                             <input type="date" id="tgl_mulai_pkl" name="tgl_mulai_pkl" class="form-control" value="{{ siswa.tgl_mulai_pkl }}">

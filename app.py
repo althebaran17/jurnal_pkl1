@@ -5,10 +5,11 @@ import io
 import hmac
 import secrets
 from functools import wraps
+
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 from flask import (
     Flask,
@@ -28,7 +29,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from config import Config, get_db_connection
-from auto_alpa import jalankan_auto_alpa, pastikan_penjadwal_jalan, sekarang_wib
+from waktu import WIB, now_wib, sekarang_wib, today_wib
+from auto_alpa import jalankan_auto_alpa, pastikan_penjadwal_jalan
 from pembimbing_pkl import pkl_bp
 
 app = Flask(__name__)
@@ -229,7 +231,7 @@ def tolak_jika_hari_minggu(kegiatan):
 
     Mengembalikan response redirect bila hari ini Minggu (WIB), selain itu None.
     """
-    if sekarang_wib().date().weekday() == 6:
+    if today_wib().weekday() == 6:
         flash(f'Hari Minggu adalah hari libur PKL. Anda tidak dapat {kegiatan} pada hari Minggu.', 'warning')
         return redirect(url_for('dashboard_siswa'))
     return None
@@ -391,7 +393,7 @@ def dashboard_siswa():
         return redirect(url_for('login'))
 
     siswa_id = session.get('siswa_id')
-    waktu_lokal = datetime.now()
+    waktu_lokal = now_wib()
     today_str = waktu_lokal.strftime('%Y-%m-%d')
     jam_sekarang = waktu_lokal.time()
 
@@ -469,12 +471,12 @@ def dashboard_siswa():
     jam_mulai_notif = datetime.strptime("09:30:00", "%H:%M:%S").time()
     jam_batas_akhir = datetime.strptime("15:00:00", "%H:%M:%S").time()
     
-    if sekarang_wib().date().weekday() == 6:
+    if today_wib().weekday() == 6:
         pass  # Minggu libur: tanpa peringatan absen
     elif not sudah_absen and (jam_mulai_notif <= jam_sekarang < jam_batas_akhir):
         flash('⚠️ Perhatian: Anda belum melakukan absensi hari ini! Waktu presensi tepat waktu (09.30 WIB) telah terlewat.', 'warning')
     elif sudah_absen and sudah_absen['status'] == 'Alpa':
-        flash('❌ Anda tercatat ALPA untuk hari ini karena tidak melakukan presensi hingga pukul 15:00 WIB.', 'danger')
+        flash(' Anda tercatat ALPA untuk hari ini karena tidak melakukan presensi hingga pukul 15:00 WIB.', 'danger')
 
     return render_template(
         'dashboard_siswa.html',
@@ -842,7 +844,7 @@ def absensi():
         return libur
 
     siswa_id = session.get('siswa_id')
-    today_str = date.today().strftime('%Y-%m-%d')
+    today_str = today_wib().strftime('%Y-%m-%d')
 
     # Jalankan pengecekan Auto-Alpa jika waktu sudah >= 15:00 WIB
     cek_dan_set_alpa_otomatis(siswa_id, today_str)
@@ -853,7 +855,7 @@ def absensi():
     # -------------------------------------------------------------------------
     # VALIDASI BATAS WAKTU JAM PRESENSI
     # -------------------------------------------------------------------------
-    jam_sekarang = datetime.now().time()
+    jam_sekarang = now_wib().time()
     jam_buka = datetime.strptime("09:00:00", "%H:%M:%S").time()
     jam_batas_terlambat = datetime.strptime("09:30:00", "%H:%M:%S").time()
 
@@ -931,6 +933,16 @@ def absensi():
             conn.close()
             return redirect(url_for('absensi'))
 
+        # KONDISI 1b: sudah lewat 09:30 tapi pengajuan terlambat belum di-ACC -> tolak (cegah bypass)
+        elif is_terlambat and pengajuan_terlambat['status_pengajuan'] != 'Disetujui':
+            if pengajuan_terlambat['status_pengajuan'] == 'Ditolak':
+                flash('Pengajuan terlambat Anda ditolak Pembimbing. Anda tidak dapat melakukan presensi.', 'danger')
+            else:
+                flash('Pengajuan terlambat masih menunggu persetujuan Pembimbing.', 'warning')
+            cursor.close()
+            conn.close()
+            return redirect(url_for('absensi'))
+
         # KONDISI 2: AMBIL FOTO SELFIE (Pukul 09:00 - 09:30 WIB ATAU Terlambat yang sudah di-ACC)
         else:
             if not foto_base64:
@@ -941,6 +953,7 @@ def absensi():
 
             try:
                 filename_db = f"absensi_{siswa_id}_{today_str}_{uuid.uuid4().hex[:6]}.png"
+                os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
                 filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename_db)
                 
                 img_data = foto_base64.split(',')[1]
@@ -1073,10 +1086,6 @@ def riwayat_absensi():
 
 
 
-# Helper validasi ekstensi file upload
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
-
 # Route untuk menyajikan file gambar dari folder uploads/
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
@@ -1162,9 +1171,10 @@ def laporan_tambah():
         return libur
 
     siswa_id = session.get('siswa_id')
-    today_str = date.today().strftime('%Y-%m-%d')
-    now = datetime.now()
+    today_str = today_wib().strftime('%Y-%m-%d')
+    now = now_wib()
     is_terlambat = now.hour >= 11
+    is_alpa_waktu = now.hour >= 15  # Batas waktu lewat jam 15.00 WIB
 
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True, buffered=True)
@@ -1189,15 +1199,26 @@ def laporan_tambah():
     conn.close()
 
     # ==========================================
-    # 3. VALIDASI HAK AKSES ISI LAPORAN HARIAN
+    # 3. VALIDASI HAK AKSES ISI LAPORAN HARIAN (DIPERBAIKI)
     # ==========================================
     
-    if status_absen == 'hadir':
-        pass # Lolos ke proses form / POST laporan
-    elif status_absen in ['izin', 'sakit']:
+    # Prioritas 1: Cek apakah siswa belum melakukan absensi sama sekali
+    if not status_absen and not pengajuan_today:
+        flash('Anda belum melakukan Absensi Hadir hari ini! Silakan absen terlebih dahulu sebelum mengisi laporan.', 'danger')
+        return redirect(url_for('laporan'))
+
+    # Prioritas 2: Cek apakah sudah lewat jam 15.00 (Tercatat Alpa / Terlambat batas waktu)
+    if is_alpa_waktu:
+        flash('Waktu pengisian laporan telah melewati pukul 15.00 WIB. Anda tercatat Alpa.', 'danger')
+        return redirect(url_for('laporan'))
+
+    # Prioritas 3: Cek jika status absensi adalah Izin atau Sakit
+    if status_absen in ['izin', 'sakit']:
         flash(f'Hari ini Anda tercatat {status_absen.capitalize()}. Anda tidak perlu mengisi laporan harian.', 'warning')
         return redirect(url_for('laporan'))
-    elif pengajuan_today:
+
+    # Prioritas 4: Cek pengajuan absensi (jika ada)
+    if pengajuan_today:
         status_p = pengajuan_today['status_pengajuan']
         jenis_p = pengajuan_today['jenis']
 
@@ -1220,9 +1241,6 @@ def laporan_tambah():
             elif status_p == 'Ditolak':
                 flash('Pengajuan keterlambatan Anda ditolak oleh Pembimbing.', 'danger')
                 return redirect(url_for('laporan'))
-    else:
-        flash('Anda belum melakukan Absensi Hadir hari ini! Silakan absen terlebih dahulu sebelum mengisi laporan.', 'danger')
-        return redirect(url_for('laporan'))
 
     # ==========================================
     # 4. PROSES POST & RENDER FORM LAPORAN
@@ -1365,13 +1383,12 @@ def laporan_edit(laporan_id):
             """, (tanggal, deskripsi_kegiatan, filename_db, new_status, laporan_id, siswa_id))
             conn.commit()
             flash('Laporan harian berhasil diperbarui!', 'success')
+            cursor.close()
+            conn.close()
             return redirect(url_for('laporan'))
         except mysql.connector.Error as e:
             conn.rollback()
             flash(f'Gagal mengupdate laporan: {e}', 'danger')
-        finally:
-            cursor.close()
-            conn.close()
 
     cursor.close()
     conn.close()
@@ -1528,7 +1545,7 @@ def pengajuan_absensi():
         return libur
 
     siswa_id = session.get('siswa_id')
-    today_str = date.today().strftime('%Y-%m-%d')
+    today_str = today_wib().strftime('%Y-%m-%d')
     
     # Jalankan pengecekan Auto-Alpa (jika waktu sudah > 15:00 WIB)
     cek_dan_set_alpa_otomatis(siswa_id, today_str)
@@ -1970,16 +1987,13 @@ def edit_siswa_page(siswa_id):
 
             conn.commit()
             flash(f'Data siswa {nama} berhasil diperbarui!', 'success')
-            
-            # UBAH INI: Agar kembali ke halaman daftar siswa (daftar_siswa)
+            cursor.close()
+            conn.close()
             return redirect(url_for('daftar_siswa'))
 
         except mysql.connector.Error as e:
             conn.rollback()
             flash(f'Terjadi kesalahan database: {e}', 'danger')
-        finally:
-            cursor.close()
-            conn.close()
 
     cursor.close()
     conn.close()
@@ -2140,8 +2154,12 @@ def nilai_siswa_page(siswa_id):
         nilai = cursor.fetchone()
 
         if request.method == 'POST':
-            nilai_sikap = int(request.form.get('nilai_sikap', 0))
-            nilai_teknis = int(request.form.get('nilai_teknis', 0))
+            try:
+                nilai_sikap = max(0, min(100, int(request.form.get('nilai_sikap', 0))))
+                nilai_teknis = max(0, min(100, int(request.form.get('nilai_teknis', 0))))
+            except (TypeError, ValueError):
+                flash('Nilai sikap dan teknis harus berupa angka 0-100!', 'danger')
+                return redirect(url_for('nilai_siswa_page', siswa_id=siswa_id))
             catatan = request.form.get('catatan_pembimbing', '').strip()
 
             # KALKULASI NILAI AKHIR (Absensi 20% + Laporan 20% + Sikap 30% + Teknis 30%)
@@ -2300,10 +2318,23 @@ def absen_manual_pembimbing():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
 
-    siswa_id = request.form.get('siswa_id')
-    tanggal = request.form.get('tanggal')
+    siswa_id = siswa_id_form
+    tanggal = (request.form.get('tanggal') or '').strip()
     status = request.form.get('status', 'Hadir')
-    keterangan = request.form.get('keterangan', 'Absen Manual oleh Pembimbing')
+    keterangan = (request.form.get('keterangan') or '').strip() or 'Absen Manual oleh Pembimbing'
+
+    try:
+        datetime.strptime(tanggal, '%Y-%m-%d')
+    except ValueError:
+        cursor.close()
+        conn.close()
+        flash('Tanggal absen manual tidak valid!', 'danger')
+        return redirect(url_for('riwayat_absensi'))
+    if status not in ('Hadir', 'Izin', 'Sakit', 'Alpa'):
+        cursor.close()
+        conn.close()
+        flash('Status absen manual tidak valid!', 'danger')
+        return redirect(url_for('riwayat_absensi'))
 
     # 1. Cek batas toleransi absen manual (Maksimal 1x per siswa)
     cursor.execute("""
@@ -2455,7 +2486,7 @@ def ekspor_absensi():
   ws.merge_cells('A2:G2')
   ws['A2'] = (
       'Sistem Informasi E-Jurnal PKL — Tanggal Cetak:'
-      f" {date.today().strftime('%d %B %Y')}"
+      f" {today_wib().strftime('%d %B %Y')}"
   )
   ws['A2'].font = subtitle_font
   ws['A2'].alignment = Alignment(horizontal='center', vertical='center')
@@ -2593,7 +2624,7 @@ def ekspor_absensi():
   wb.save(output)
   output.seek(0)
 
-  filename = f"Rekap_Absensi_PKL_{date.today().strftime('%Y%m%d')}.xlsx"
+  filename = f"Rekap_Absensi_PKL_{today_wib().strftime('%Y%m%d')}.xlsx"
 
   return send_file(
       output,

@@ -125,6 +125,15 @@
             gap: 12px;
             margin-top: 28px;
         }
+    
+        @media (max-width: 600px) {
+            .form-card { padding: 20px 16px; }
+            .auto-summary-grid { grid-template-columns: 1fr; }
+            .card-header-title { flex-wrap: wrap; gap: 8px; }
+            .btn-group { flex-direction: column-reverse; }
+            .btn-group .btn-action-custom { width: 100%; }
+            .form-control { font-size: 16px; }
+        }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
     <script src="{{ url_for('static', filename='js/responsive.js') }}" defer></script>

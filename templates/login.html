@@ -15,8 +15,10 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
+            min-height: 100dvh;
             padding: 24px;
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto;
             background-color: #0f172a;
         }
         .bg-video {
@@ -25,8 +27,9 @@
             width: 100vw;
             height: 100vh;
             object-fit: cover;
-            z-index: -2;
+            z-index: -3;
             transform: scale(1.03);
+            filter: brightness(0.85); /* Sedikit diredupkan agar efek cahaya lebih menonjol */
         }
         .bg-overlay {
             position: fixed;
@@ -34,8 +37,44 @@
             background: radial-gradient(circle at top right, rgba(79, 70, 229, 0.35), rgba(15, 23, 42, 0.85));
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
-            z-index: -1;
+            z-index: -2;
         }
+
+        /* ---- TAMBAHAN: Efek Cahaya Melayang & Dekorasi Estetik ---- */
+        .bg-glow-container {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            pointer-events: none;
+            overflow: hidden;
+        }
+        .glow-orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(60px);
+            opacity: 0.45;
+            animation: floatOrb 10s ease-in-out infinite alternate;
+        }
+        .glow-orb-1 {
+            width: 300px;
+            height: 300px;
+            background: rgba(99, 102, 241, 0.5);
+            top: 10%;
+            left: 15%;
+        }
+        .glow-orb-2 {
+            width: 350px;
+            height: 350px;
+            background: rgba(14, 165, 233, 0.35);
+            bottom: 10%;
+            right: 15%;
+            animation-delay: -5s;
+        }
+        @keyframes floatOrb {
+            0% { transform: translateY(0px) scale(1); }
+            100% { transform: translateY(-25px) scale(1.08); }
+        }
+
         .login-card {
             background: rgba(255, 255, 255, 0.94);
             backdrop-filter: blur(16px);
@@ -146,6 +185,13 @@
             color: var(--text-muted);
             font-weight: 500;
         }
+    
+        @media (max-width: 480px) {
+            body { padding: 16px; align-items: flex-start; }
+            .login-card { padding: 28px 20px; margin: auto 0; }
+            .header-text h2 { font-size: 1.3rem; }
+            input, select, textarea { font-size: 16px; }
+        }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
     <script src="{{ url_for('static', filename='js/responsive.js') }}" defer></script>
@@ -158,9 +204,15 @@
 
     <div class="bg-overlay"></div>
 
+    <!-- Tambahan Elemen Cahaya Estetik di Background -->
+    <div class="bg-glow-container">
+        <div class="glow-orb glow-orb-1"></div>
+        <div class="glow-orb glow-orb-2"></div>
+    </div>
+
     <div class="login-card">
         <div class="login-header">
-            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" class="brand-logo-img">
+            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" class="login-logo">
             <div class="header-text">
                 <h2>E-Jurnal PKL</h2>
                 <p>Masuk untuk mengelola absensi dan laporan harian</p>
@@ -226,4 +278,4 @@
         });
     </script>
 </body>
-</html> 
+</html>

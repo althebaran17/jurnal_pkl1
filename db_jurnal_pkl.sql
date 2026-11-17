@@ -3,9 +3,9 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Waktu pembuatan: 12 Nov 2026 pada 08.26
--- Versi server: 10.4.32-MariaDB
--- Versi PHP: 8.2.12
+-- Generation Time: Nov 15, 2026 at 06:33 PM
+-- Server version: 10.4.32-MariaDB
+-- PHP Version: 8.0.30
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -24,7 +24,7 @@ SET time_zone = "+00:00";
 -- --------------------------------------------------------
 
 --
--- Struktur dari tabel `absensi`
+-- Table structure for table `absensi`
 --
 
 CREATE TABLE `absensi` (
@@ -39,20 +39,10 @@ CREATE TABLE `absensi` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data untuk tabel `absensi`
---
-
-INSERT INTO `absensi` (`id`, `siswa_id`, `tanggal`, `status`, `keterangan`, `foto_bukti`, `lokasi`, `is_manual`, `created_at`) VALUES
-(22, 12, '2026-11-11', 'Alpa', 'Otomatis Alpa oleh Sistem (Lewat Jam 15:00 WIB)', NULL, NULL, 0, '2026-11-11 10:42:06'),
-(23, 11, '2026-11-11', 'Alpa', 'Otomatis Alpa oleh Sistem (Lewat Jam 15:00 WIB)', NULL, NULL, 0, '2026-11-11 12:19:36'),
-(24, 11, '2026-11-12', 'Hadir', 'Terlambat (ACC Pembimbing): laptop saya di cas', 'absensi_11_2026-11-12_555355.png', '', 0, '2026-11-12 04:11:40'),
-(25, 13, '2026-11-12', 'Hadir', 'Terlambat (ACC Pembimbing): saya terlambat karena harus kerumah sakit dulu', 'absensi_13_2026-11-12_f8dbc4.png', '', 0, '2026-11-12 06:39:48');
-
 -- --------------------------------------------------------
 
 --
--- Struktur dari tabel `laporan_harian`
+-- Table structure for table `laporan_harian`
 --
 
 CREATE TABLE `laporan_harian` (
@@ -70,21 +60,10 @@ CREATE TABLE `laporan_harian` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data untuk tabel `laporan_harian`
---
-
-INSERT INTO `laporan_harian` (`id`, `siswa_id`, `tanggal`, `minggu_ke`, `tanggal_mulai`, `tanggal_selesai`, `deskripsi_kegiatan`, `foto_bukti`, `alasan_terlambat`, `status_validasi`, `catatan_pembimbing`, `created_at`) VALUES
-(9, 11, '2026-11-09', NULL, NULL, NULL, 'Membuat erd', '9d04438a6de14740ba793ff79aa92aac_Cuplikan_layar_2026-08-03_101649.png', 'Tidak ada laptop', 'Disetujui', 'Bagus', '2026-11-09 06:28:14'),
-(10, 13, '2026-11-12', NULL, NULL, NULL, 'saya mengerjakan hosting web', '28c3fca64d2a4502a219eb37df2086b3_Cuplikan_layar_2026-11-09_120046.png', 'saya terlambat karena harus kerumah sakit dulu', 'Disetujui', 'ganti erdnya', '2026-11-12 06:40:54'),
-(11, 13, '2026-11-12', NULL, NULL, NULL, '10243316jsjchsjajsdjsa', '330e41c66e8a452983e78a84e6cab02d_Cuplikan_layar_2026-08-03_100616.png', ';;;;sdscscecjhsaic', 'Disetujui', 'mukanya benerin', '2026-11-12 06:41:32'),
-(12, 13, '2026-11-12', NULL, NULL, NULL, 'sdfghjkjhgfdfghjkl', '81fcfac43a64477e87af1f60dc9824ef_Cuplikan_layar_2026-08-03_101649.png', 'hgfdfghjkjhgfghjk', 'Disetujui', 'itu si hideng ngapain', '2026-11-12 06:42:31'),
-(13, 13, '2026-11-11', NULL, NULL, NULL, 'hayuuuuuuuuuuuu', 'd76e915617b64882a4e23967c59ce6b2_Cuplikan_layar_2026-08-03_100810.png', 'yaaaaaaaaaaaaaaaaaa', 'Pending', NULL, '2026-11-12 07:01:39');
-
 -- --------------------------------------------------------
 
 --
--- Struktur dari tabel `nilai_pkl`
+-- Table structure for table `nilai_pkl`
 --
 
 CREATE TABLE `nilai_pkl` (
@@ -102,17 +81,10 @@ CREATE TABLE `nilai_pkl` (
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data untuk tabel `nilai_pkl`
---
-
-INSERT INTO `nilai_pkl` (`id`, `siswa_id`, `pembimbing_id`, `nilai_absensi`, `nilai_laporan`, `nilai_sikap`, `nilai_teknis`, `nilai_akhir`, `predikat`, `catatan_pembimbing`, `created_at`, `updated_at`) VALUES
-(1, 13, 3, 100.00, 100.00, 0, 98, 69.40, 'C', 'yang sopan ya', '2026-11-12 13:45:58', '2026-11-12 14:13:59');
-
 -- --------------------------------------------------------
 
 --
--- Struktur dari tabel `pembimbing`
+-- Table structure for table `pembimbing`
 --
 
 CREATE TABLE `pembimbing` (
@@ -128,7 +100,7 @@ CREATE TABLE `pembimbing` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
--- Dumping data untuk tabel `pembimbing`
+-- Dumping data for table `pembimbing`
 --
 
 INSERT INTO `pembimbing` (`id`, `user_id`, `nama_perusahaan`, `jabatan`, `divisi`, `no_hp`, `email`, `alamat_perusahaan`, `created_at`) VALUES
@@ -137,7 +109,7 @@ INSERT INTO `pembimbing` (`id`, `user_id`, `nama_perusahaan`, `jabatan`, `divisi
 -- --------------------------------------------------------
 
 --
--- Struktur dari tabel `pengajuan_absensi`
+-- Table structure for table `pengajuan_absensi`
 --
 
 CREATE TABLE `pengajuan_absensi` (
@@ -152,45 +124,51 @@ CREATE TABLE `pengajuan_absensi` (
   `sudah_dilihat` int(11) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data untuk tabel `pengajuan_absensi`
---
-
-INSERT INTO `pengajuan_absensi` (`id`, `siswa_id`, `tanggal`, `jenis`, `alasan`, `bukti_file`, `status_pengajuan`, `created_at`, `sudah_dilihat`) VALUES
-(21, 11, '2026-11-12', 'Terlambat', 'laptop saya di cas', NULL, 'Disetujui', '2026-11-12 04:07:46', 0),
-(22, 13, '2026-11-12', 'Terlambat', 'saya terlambat karena harus kerumah sakit dulu', NULL, 'Disetujui', '2026-11-12 06:38:19', 0);
-
 -- --------------------------------------------------------
 
 --
--- Struktur dari tabel `pengumuman_pembimbing`
+-- Table structure for table `pengumuman_pembimbing`
 --
 
 CREATE TABLE `pengumuman_pembimbing` (
   `id` int(11) NOT NULL,
   `pesan` text NOT NULL,
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `sekolah_id` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
--- Dumping data untuk tabel `pengumuman_pembimbing`
+-- Dumping data for table `pengumuman_pembimbing`
 --
 
-INSERT INTO `pengumuman_pembimbing` (`id`, `pesan`, `updated_at`) VALUES
-(1, 'besok libur', '2026-11-11 10:02:10'),
-(2, 'tes', '2026-11-11 10:02:14'),
-(3, 'tes', '2026-11-11 10:02:19'),
-(4, 'tes', '2026-11-11 10:02:26'),
-(5, 'tes', '2026-11-11 10:06:33'),
-(6, 'tes', '2026-11-11 12:54:40'),
-(7, 'tes', '2026-11-11 12:54:52'),
-(8, 'untuk besok kita libur nya barudak', '2026-11-12 06:48:42'),
-(9, 'hayu balik barudak', '2026-11-12 07:11:11');
+INSERT INTO `pengumuman_pembimbing` (`id`, `pesan`, `updated_at`, `sekolah_id`) VALUES
+(8, 'Besok ke kantor', '2026-11-15 15:27:22', NULL);
 
 -- --------------------------------------------------------
 
 --
--- Struktur dari tabel `siswa`
+-- Table structure for table `sekolah`
+--
+
+CREATE TABLE `sekolah` (
+  `id` int(11) NOT NULL,
+  `nama` varchar(255) NOT NULL,
+  `npsn` varchar(50) DEFAULT NULL,
+  `alamat` text DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `sekolah`
+--
+
+INSERT INTO `sekolah` (`id`, `nama`, `npsn`, `alamat`) VALUES
+(1, 'SMK Negeri 2 Cimahi', '20238571', 'Jl. Kamarung Km. 1,5 No. 69, Kelurahan Citeureup, Kecamatan Cimahi Utara, Kota Cimahi, Jawa Barat'),
+(2, 'SMK Negeri 1 Cisarua', '69772603', 'Jl. Raya Puncak No. 24, KM. 86, Tugu Selatan, Kec. Cisarua, Kab. Bogor, Jawa Barat');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `siswa`
 --
 
 CREATE TABLE `siswa` (
@@ -198,7 +176,6 @@ CREATE TABLE `siswa` (
   `user_id` int(11) NOT NULL,
   `nisn` varchar(20) NOT NULL,
   `kelas_jurusan` varchar(50) DEFAULT NULL,
-  `sekolah` varchar(100) DEFAULT NULL,
   `tgl_mulai_pkl` date DEFAULT NULL,
   `tgl_selesai_pkl` date DEFAULT NULL,
   `tempat_lahir` varchar(100) DEFAULT NULL,
@@ -207,22 +184,24 @@ CREATE TABLE `siswa` (
   `no_hp` varchar(20) DEFAULT NULL,
   `email` varchar(100) DEFAULT NULL,
   `alamat` text DEFAULT NULL,
-  `foto_profil` varchar(255) DEFAULT NULL
+  `foto_profil` varchar(255) DEFAULT NULL,
+  `sekolah_id` int(11) DEFAULT NULL,
+  `pembimbing_pkl_id` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
--- Dumping data untuk tabel `siswa`
+-- Dumping data for table `siswa`
 --
 
-INSERT INTO `siswa` (`id`, `user_id`, `nisn`, `kelas_jurusan`, `sekolah`, `tgl_mulai_pkl`, `tgl_selesai_pkl`, `tempat_lahir`, `tanggal_lahir`, `jenis_kelamin`, `no_hp`, `email`, `alamat`, `foto_profil`) VALUES
-(11, 14, '10243301', 'XII PPLG B', 'SMK Negeri 2 Cimahi', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL),
-(12, 15, '10243300', 'XII PPLG B', 'SMK Negeri 2 Cimahi', '2026-07-13', '2026-11-13', NULL, NULL, NULL, NULL, NULL, NULL, NULL),
-(13, 16, '10243316', 'XII PPLG B', 'SMK Negeri 2 Cimahi', '2026-07-13', '2026-11-13', 'Cimahi', '2009-04-14', 'L', '0830000000', 'moonveilmc6@gmail.com', 'Jalan Pangauban', NULL);
+INSERT INTO `siswa` (`id`, `user_id`, `nisn`, `kelas_jurusan`, `tgl_mulai_pkl`, `tgl_selesai_pkl`, `tempat_lahir`, `tanggal_lahir`, `jenis_kelamin`, `no_hp`, `email`, `alamat`, `foto_profil`, `sekolah_id`, `pembimbing_pkl_id`) VALUES
+(11, 14, '10243301', 'XII PPLG B', NULL, NULL, 'Cimahi', '2008-07-17', 'L', '083863286499', 'mfirdausalif1218@gmail.com', 'Jalan Kebon Kopi', 'foto_profil_11_1794756105.jpg', 1, 17),
+(12, 15, '10243300', 'XII PPLG B', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1, 17),
+(14, 20, '12345', 'XII PPLG B', '2026-11-15', '2026-11-16', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 2, NULL);
 
 -- --------------------------------------------------------
 
 --
--- Struktur dari tabel `users`
+-- Table structure for table `users`
 --
 
 CREATE TABLE `users` (
@@ -230,172 +209,194 @@ CREATE TABLE `users` (
   `username` varchar(50) NOT NULL,
   `password` varchar(255) NOT NULL,
   `nama` varchar(100) NOT NULL,
-  `role` enum('pembimbing_industri','pembimbing_pkl','siswa') NOT NULL,
+  `role` enum('pembimbing_industri','pembimbing_pkl','siswa','admin') NOT NULL,
   `is_active` tinyint(1) DEFAULT 1,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `sekolah_id` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
--- Dumping data untuk tabel `users`
+-- Dumping data for table `users`
 --
 
-INSERT INTO `users` (`id`, `username`, `password`, `nama`, `role`, `is_active`, `created_at`) VALUES
-(2, 'pembimbing_pkl', 'scrypt:32768:8:1$OqTkMEpguJtcfeXZ$9bffd894dbb88ac08989170212e22cd91612908600b32b45eb9f914fcbba48c5a669c1d76b8d3178a309763e2d010e3798fe8693c6ec32c9028fa5553a2b0aef', 'Budi S.Kom (Guru)', 'pembimbing_pkl', 1, '2026-08-15 03:22:21'),
-(3, 'pembimbing_ind', 'scrypt:32768:8:1$OqTkMEpguJtcfeXZ$9bffd894dbb88ac08989170212e22cd91612908600b32b45eb9f914fcbba48c5a669c1d76b8d3178a309763e2d010e3798fe8693c6ec32c9028fa5553a2b0aef', 'Erik Setiawan', 'pembimbing_industri', 1, '2026-08-15 03:22:21'),
-(14, '10243301', 'scrypt:32768:8:1$KFCTGYHiVtZjCnfm$482598ab584b52684757a0a72e894ead3bfc423b70e1a0af462a4cfa3a8cf58732b70e422bc54033375564b21e2d7d13f36b7a7a6375e52ca07ca154db8113f8', 'Muhammad Alif Firdaus', 'siswa', 0, '2026-11-09 06:23:38'),
-(15, '10243300', 'scrypt:32768:8:1$cebcDkpUgBeVayx6$d118c49e7a49f15cbb5a8d05c3406ad79101ba4ea8ce4484d6081d8c3b495c2a49eba38434d2ef11f24ef0ec5e805d88d522f9f6401e84ca0b1e30b1989165ac', 'Muhammad Akbar', 'siswa', 1, '2026-11-09 07:01:16'),
-(16, '10243316', 'scrypt:32768:8:1$1SjKUVpFqE2sJz4h$5ac0ae1f6cab5c0c5b4ccd9100e19e777b37967e30a677e1b77b0e31f89d9b928f5a85c393575796ca5212a324d75c874d0627871614965ce90ee477ebe20fbe', 'Rizqy Indrawan Putra', 'siswa', 0, '2026-11-12 06:32:08');
+INSERT INTO `users` (`id`, `username`, `password`, `nama`, `role`, `is_active`, `created_at`, `sekolah_id`) VALUES
+(3, 'pembimbing_ind', 'scrypt:32768:8:1$OqTkMEpguJtcfeXZ$9bffd894dbb88ac08989170212e22cd91612908600b32b45eb9f914fcbba48c5a669c1d76b8d3178a309763e2d010e3798fe8693c6ec32c9028fa5553a2b0aef', 'Erik Setiawan', 'pembimbing_industri', 1, '2026-08-15 03:22:21', NULL),
+(14, '10243301', 'scrypt:32768:8:1$KFCTGYHiVtZjCnfm$482598ab584b52684757a0a72e894ead3bfc423b70e1a0af462a4cfa3a8cf58732b70e422bc54033375564b21e2d7d13f36b7a7a6375e52ca07ca154db8113f8', 'Muhammad Alif Firdaus', 'siswa', 1, '2026-11-09 06:23:38', NULL),
+(15, '10243300', 'scrypt:32768:8:1$cebcDkpUgBeVayx6$d118c49e7a49f15cbb5a8d05c3406ad79101ba4ea8ce4484d6081d8c3b495c2a49eba38434d2ef11f24ef0ec5e805d88d522f9f6401e84ca0b1e30b1989165ac', 'Muhammad Akbar', 'siswa', 1, '2026-11-09 07:01:16', NULL),
+(16, 'admin', 'scrypt:32768:8:1$XVM66gKTjfJhSPTa$1af18a52de3a379f2528fdbe37739e19ffb36499f36911c41f4f26c46e15dab0723b004a468f2badb56845e32680add1ccb1f06af2bebceb76e1b3d2c95ca5a2', 'Alif', 'admin', 1, '2026-11-15 13:34:05', NULL),
+(17, 'SMKN2', 'scrypt:32768:8:1$RTsfMIdscmbb4rVf$2fbb78c5abd5ce1af3aba1941daf3edb9b87f7fa8ac05090ccd6a26544092a949d60a0916bbf305ac6c429661cabc0afe68a8550f94fb7dc8138a2b8d8e157d8', 'Kiki Yuliantiy', 'pembimbing_pkl', 1, '2026-11-15 13:35:27', 1),
+(18, 'SMKN1', 'scrypt:32768:8:1$pX4lkoCVemzwgtuO$16a432eddd47ddd3f214b65e8c0270baf1bea7ff30af48b6c41821da2786248b5b408afe5d32d2c6ad9992fa8feca7ebcec844a2b74daaee33cfe31e7747f101', 'Yayat', 'pembimbing_pkl', 1, '2026-11-15 13:40:01', 2),
+(20, '12345', 'scrypt:32768:8:1$xsotFgEFOD9J5fd7$c14c795055a73acc34c8b95240a6405233f61450ffefa2601adb31ea4a23e7ad7b2004a4017524f6eb06e19528775d6c2b394d231ea0d52cf4b34f1bc37dec1c', 'Jamil', 'siswa', 1, '2026-11-15 15:30:00', NULL);
 
 --
 -- Indexes for dumped tables
 --
 
 --
--- Indeks untuk tabel `absensi`
+-- Indexes for table `absensi`
 --
 ALTER TABLE `absensi`
   ADD PRIMARY KEY (`id`),
-  ADD KEY `siswa_id` (`siswa_id`);
+  ADD KEY `siswa_id` (`siswa_id`),
+  ADD KEY `idx_siswa_tanggal` (`siswa_id`,`tanggal`);
 
 --
--- Indeks untuk tabel `laporan_harian`
+-- Indexes for table `laporan_harian`
 --
 ALTER TABLE `laporan_harian`
   ADD PRIMARY KEY (`id`),
-  ADD KEY `siswa_id` (`siswa_id`);
+  ADD KEY `siswa_id` (`siswa_id`),
+  ADD KEY `idx_siswa_tanggal` (`siswa_id`,`tanggal`);
 
 --
--- Indeks untuk tabel `nilai_pkl`
+-- Indexes for table `nilai_pkl`
 --
 ALTER TABLE `nilai_pkl`
   ADD PRIMARY KEY (`id`),
   ADD KEY `siswa_id` (`siswa_id`),
-  ADD KEY `pembimbing_id` (`pembimbing_id`);
+  ADD KEY `fk_nilai_users` (`pembimbing_id`);
 
 --
--- Indeks untuk tabel `pembimbing`
+-- Indexes for table `pembimbing`
 --
 ALTER TABLE `pembimbing`
   ADD PRIMARY KEY (`id`),
   ADD KEY `user_id` (`user_id`);
 
 --
--- Indeks untuk tabel `pengajuan_absensi`
+-- Indexes for table `pengajuan_absensi`
 --
 ALTER TABLE `pengajuan_absensi`
   ADD PRIMARY KEY (`id`),
-  ADD KEY `siswa_id` (`siswa_id`);
+  ADD KEY `siswa_id` (`siswa_id`),
+  ADD KEY `idx_siswa_tanggal` (`siswa_id`,`tanggal`);
 
 --
--- Indeks untuk tabel `pengumuman_pembimbing`
+-- Indexes for table `pengumuman_pembimbing`
 --
 ALTER TABLE `pengumuman_pembimbing`
   ADD PRIMARY KEY (`id`);
 
 --
--- Indeks untuk tabel `siswa`
+-- Indexes for table `sekolah`
+--
+ALTER TABLE `sekolah`
+  ADD PRIMARY KEY (`id`);
+
+--
+-- Indexes for table `siswa`
 --
 ALTER TABLE `siswa`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `nisn` (`nisn`),
-  ADD KEY `user_id` (`user_id`);
+  ADD KEY `user_id` (`user_id`),
+  ADD KEY `idx_siswa_sekolah` (`sekolah_id`),
+  ADD KEY `idx_siswa_pembimbing_pkl` (`pembimbing_pkl_id`);
 
 --
--- Indeks untuk tabel `users`
+-- Indexes for table `users`
 --
 ALTER TABLE `users`
   ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `username` (`username`);
+  ADD UNIQUE KEY `username` (`username`),
+  ADD KEY `idx_users_sekolah` (`sekolah_id`);
 
 --
--- AUTO_INCREMENT untuk tabel yang dibuang
+-- AUTO_INCREMENT for dumped tables
 --
 
 --
--- AUTO_INCREMENT untuk tabel `absensi`
+-- AUTO_INCREMENT for table `absensi`
 --
 ALTER TABLE `absensi`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=26;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=25;
 
 --
--- AUTO_INCREMENT untuk tabel `laporan_harian`
+-- AUTO_INCREMENT for table `laporan_harian`
 --
 ALTER TABLE `laporan_harian`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
 
 --
--- AUTO_INCREMENT untuk tabel `nilai_pkl`
+-- AUTO_INCREMENT for table `nilai_pkl`
 --
 ALTER TABLE `nilai_pkl`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
--- AUTO_INCREMENT untuk tabel `pembimbing`
+-- AUTO_INCREMENT for table `pembimbing`
 --
 ALTER TABLE `pembimbing`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
--- AUTO_INCREMENT untuk tabel `pengajuan_absensi`
+-- AUTO_INCREMENT for table `pengajuan_absensi`
 --
 ALTER TABLE `pengajuan_absensi`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=23;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=22;
 
 --
--- AUTO_INCREMENT untuk tabel `pengumuman_pembimbing`
+-- AUTO_INCREMENT for table `pengumuman_pembimbing`
 --
 ALTER TABLE `pengumuman_pembimbing`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
 
 --
--- AUTO_INCREMENT untuk tabel `siswa`
+-- AUTO_INCREMENT for table `sekolah`
+--
+ALTER TABLE `sekolah`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+
+--
+-- AUTO_INCREMENT for table `siswa`
 --
 ALTER TABLE `siswa`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
 
 --
--- AUTO_INCREMENT untuk tabel `users`
+-- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
 
 --
--- Ketidakleluasaan untuk tabel pelimpahan (Dumped Tables)
+-- Constraints for dumped tables
 --
 
 --
--- Ketidakleluasaan untuk tabel `absensi`
+-- Constraints for table `absensi`
 --
 ALTER TABLE `absensi`
   ADD CONSTRAINT `absensi_ibfk_1` FOREIGN KEY (`siswa_id`) REFERENCES `siswa` (`id`) ON DELETE CASCADE;
 
 --
--- Ketidakleluasaan untuk tabel `laporan_harian`
+-- Constraints for table `laporan_harian`
 --
 ALTER TABLE `laporan_harian`
   ADD CONSTRAINT `laporan_harian_ibfk_1` FOREIGN KEY (`siswa_id`) REFERENCES `siswa` (`id`) ON DELETE CASCADE;
 
 --
--- Ketidakleluasaan untuk tabel `nilai_pkl`
+-- Constraints for table `nilai_pkl`
 --
 ALTER TABLE `nilai_pkl`
+  ADD CONSTRAINT `fk_nilai_users` FOREIGN KEY (`pembimbing_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   ADD CONSTRAINT `nilai_pkl_ibfk_1` FOREIGN KEY (`siswa_id`) REFERENCES `siswa` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `nilai_pkl_ibfk_2` FOREIGN KEY (`pembimbing_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 --
--- Ketidakleluasaan untuk tabel `pembimbing`
+-- Constraints for table `pembimbing`
 --
 ALTER TABLE `pembimbing`
   ADD CONSTRAINT `pembimbing_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 --
--- Ketidakleluasaan untuk tabel `pengajuan_absensi`
+-- Constraints for table `pengajuan_absensi`
 --
 ALTER TABLE `pengajuan_absensi`
   ADD CONSTRAINT `pengajuan_absensi_ibfk_1` FOREIGN KEY (`siswa_id`) REFERENCES `siswa` (`id`) ON DELETE CASCADE;
 
 --
--- Ketidakleluasaan untuk tabel `siswa`
+-- Constraints for table `siswa`
 --
 ALTER TABLE `siswa`
   ADD CONSTRAINT `siswa_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;

@@ -2,6 +2,7 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rekap Absensi - {{ siswa.nama }}</title>
     <style>
         body { font-family: 'Times New Roman', Times, serif; padding: 30px; color: #000; }
@@ -26,6 +27,12 @@
         @media print {
             .no-print { display: none; }
             body { padding: 0; }
+        }
+    
+        @media screen and (max-width: 640px) {
+            body { padding: 14px; }
+            .data-table { display: block; overflow-x: auto; white-space: nowrap; }
+            .rekap-box { flex-wrap: wrap; gap: 10px; }
         }
     </style>
 </head>
@@ -112,4 +119,4 @@
     </div>
 
 </body>
-</html>
+</html>

@@ -183,6 +183,10 @@
                 width: 40%;
             }
         }
+    
+        @media (max-width: 768px) {
+            .info-table th, .info-table td { word-break: break-word; }
+        }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
     <script src="{{ url_for('static', filename='js/responsive.js') }}" defer></script>

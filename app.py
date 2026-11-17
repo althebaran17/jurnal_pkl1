@@ -3,6 +3,7 @@ import time
 import uuid
 import io
 import hmac
+import re
 import secrets
 from functools import wraps
 
@@ -25,6 +26,8 @@ from flask import (
     send_file
 )
 import mysql.connector
+import pyotp
+import segno
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -132,6 +135,10 @@ app.config['UPLOAD_FOLDER_PROFIL'] = UPLOAD_FOLDER_PROFIL
 os.makedirs(UPLOAD_FOLDER_PROFIL, exist_ok=True)
 if app.config.get('UPLOAD_FOLDER'):
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# Login admin wajib kode 6 digit dari Google Authenticator (TOTP). Set env ADMIN_2FA=0 untuk mematikan.
+ADMIN_2FA_WAJIB = os.environ.get('ADMIN_2FA', '1') != '0'
+BATAS_2FA_DETIK = 300   # waktu maksimal antara password benar -> kode 2FA dimasukkan
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
 
@@ -275,6 +282,28 @@ def pastikan_skema():
             print("[MIGRASI] kolom siswa.pembimbing_pkl_id ditambahkan")
     except Exception as e:
         print(f"[MIGRASI] gagal memeriksa/menambah pembimbing_pkl_id: {e}")
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS hari_libur (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                tanggal DATE NOT NULL,
+                keterangan VARCHAR(150) NOT NULL,
+                sekolah_id INT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_hari_libur_tanggal (tanggal)
+            )
+        """)
+        conn.commit()
+    except Exception as e:
+        print(f"[MIGRASI] gagal membuat tabel hari_libur: {e}")
+    try:
+        cursor.execute("SHOW COLUMNS FROM users LIKE 'totp_secret'")
+        if cursor.fetchone() is None:
+            cursor.execute("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64) NULL")
+            conn.commit()
+            print("[MIGRASI] kolom users.totp_secret ditambahkan")
+    except Exception as e:
+        print(f"[MIGRASI] gagal memeriksa/menambah totp_secret: {e}")
     finally:
         cursor.close()
         conn.close()
@@ -390,6 +419,15 @@ def login():
                     conn.close()
                     return render_template('login.html')
 
+                # ADMIN: password benar belum cukup -> lanjut ke verifikasi kode Authenticator
+                if user['role'] == 'admin' and ADMIN_2FA_WAJIB:
+                    session.clear()
+                    session['pending_2fa_uid'] = user['id']
+                    session['pending_2fa_at'] = time.time()
+                    cursor.close()
+                    conn.close()
+                    return redirect(url_for('login_2fa'))
+
                 # Membersihkan frasa (Guru) atau (Pembimbing) dari nama
                 nama_bersih = user['nama'].replace(' (Guru)', '').replace('(Guru)', '').replace(' (Pembimbing)', '').replace('(Pembimbing)', '').strip()
 
@@ -427,6 +465,70 @@ def login():
             conn.close()
 
     return render_template('login.html')
+
+@app.route('/login/2fa', methods=['GET', 'POST'])
+def login_2fa():
+    """Langkah ke-2 login admin: kode TOTP (Google Authenticator / Authy / dll).
+
+    Admin yang belum punya secret diminta memindai QR dulu (pendaftaran sekali saja).
+    """
+    uid = session.get('pending_2fa_uid')
+    if not uid or time.time() - session.get('pending_2fa_at', 0) > BATAS_2FA_DETIK:
+        session.clear()
+        flash('Sesi verifikasi berakhir. Silakan login ulang.', 'warning')
+        return redirect(url_for('login'))
+
+    conn = get_db_connection()
+    if not conn:
+        flash('Gagal terhubung ke server database.', 'danger')
+        return redirect(url_for('login'))
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT * FROM users WHERE id = %s AND role = 'admin'", (uid,))
+        user = cursor.fetchone()
+        if not user or user.get('is_active') == 0:
+            session.clear()
+            return redirect(url_for('login'))
+
+        secret = user.get('totp_secret')
+        mode_setup = not secret
+        if mode_setup:
+            secret = session.get('pending_2fa_secret') or pyotp.random_base32()
+            session['pending_2fa_secret'] = secret
+
+        kunci = '2fa:' + user['username']
+        if request.method == 'POST':
+            if login_terkunci(kunci):
+                flash('Terlalu banyak kode salah. Coba lagi dalam 10 menit.', 'danger')
+            else:
+                kode = re.sub(r'\D', '', request.form.get('kode', ''))
+                if len(kode) == 6 and pyotp.TOTP(secret).verify(kode, valid_window=1):
+                    if mode_setup:
+                        cursor.execute("UPDATE users SET totp_secret = %s WHERE id = %s", (secret, user['id']))
+                        conn.commit()
+                    reset_login_gagal(kunci)
+                    reset_login_gagal(user['username'])
+                    session.clear()  # cegah session fixation
+                    session['logged_in'] = True
+                    session['user_id'] = user['id']
+                    session['username'] = user['username']
+                    session['nama'] = user['nama'].replace(' (Guru)', '').replace('(Guru)', '').replace(' (Pembimbing)', '').replace('(Pembimbing)', '').strip()
+                    session['role'] = 'admin'
+                    session['sekolah_id'] = user.get('sekolah_id')
+                    return redirect(url_for('dashboard_admin'))
+                catat_login_gagal(kunci)
+                flash('Kode salah atau sudah kedaluwarsa. Periksa jam HP Anda lalu coba lagi.', 'danger')
+
+        qr_uri = None
+        if mode_setup:
+            uri = pyotp.TOTP(secret).provisioning_uri(name=user['username'], issuer_name='E-Jurnal PKL')
+            qr_uri = segno.make(uri, error='m').svg_data_uri(scale=5, border=2)
+        return render_template('login_2fa.html', mode_setup=mode_setup, qr_uri=qr_uri,
+                               secret=secret if mode_setup else None, username=user['username'])
+    finally:
+        cursor.close()
+        conn.close()
+
 
 @app.route('/dashboard/siswa')
 def dashboard_siswa():
@@ -2842,6 +2944,82 @@ def admin_sekolah():
         cursor.close()
         conn.close()
     return render_template('admin_sekolah.html', sekolah_list=sekolah_list)
+
+
+@app.route('/admin/libur', methods=['GET', 'POST'])
+@admin_required
+def admin_libur():
+    """Kelola hari libur (tanggal merah / libur perusahaan): tidak dihitung Alpa."""
+    conn = get_db_connection()
+    if not conn:
+        flash('Gagal terhubung ke database.', 'danger')
+        return redirect(url_for('dashboard_admin'))
+    cursor = conn.cursor(dictionary=True)
+    try:
+        if request.method == 'POST':
+            aksi = request.form.get('aksi', '')
+            try:
+                if aksi == 'tambah':
+                    ket = request.form.get('keterangan', '').strip()[:150]
+                    sekolah_id = request.form.get('sekolah_id', type=int) or None
+                    try:
+                        mulai = datetime.strptime(request.form.get('tgl_mulai', ''), '%Y-%m-%d').date()
+                        akhir_txt = request.form.get('tgl_akhir', '').strip()
+                        akhir = datetime.strptime(akhir_txt, '%Y-%m-%d').date() if akhir_txt else mulai
+                    except ValueError:
+                        mulai = akhir = None
+                    if not ket or not mulai:
+                        flash('Tanggal dan keterangan wajib diisi!', 'danger')
+                    elif akhir < mulai or (akhir - mulai).days > 60:
+                        flash('Rentang tanggal tidak valid (maksimal 61 hari).', 'danger')
+                    else:
+                        ditambah = dihapus_alpa = 0
+                        d = mulai
+                        while d <= akhir:
+                            cursor.execute(
+                                "SELECT 1 FROM hari_libur WHERE tanggal = %s AND sekolah_id <=> %s",
+                                (d.isoformat(), sekolah_id))
+                            if cursor.fetchone() is None:
+                                cursor.execute(
+                                    "INSERT INTO hari_libur (tanggal, keterangan, sekolah_id) VALUES (%s, %s, %s)",
+                                    (d.isoformat(), ket, sekolah_id))
+                                ditambah += 1
+                            # Hapus Alpa OTOMATIS yang sudah terlanjur tercatat pada hari libur ini
+                            cursor.execute("""
+                                DELETE a FROM absensi a JOIN siswa s ON a.siswa_id = s.id
+                                WHERE a.tanggal = %s AND a.status = 'Alpa' AND a.is_manual = 0
+                                  AND a.keterangan LIKE 'Otomatis Alpa oleh Sistem%%'
+                                  AND (%s IS NULL OR s.sekolah_id = %s)
+                            """, (d.isoformat(), sekolah_id, sekolah_id))
+                            dihapus_alpa += max(cursor.rowcount, 0)
+                            d += timedelta(days=1)
+                        conn.commit()
+                        flash(f'{ditambah} hari libur ditambahkan. {dihapus_alpa} Alpa otomatis pada tanggal tersebut dibersihkan.', 'success')
+                elif aksi == 'hapus':
+                    libur_id = request.form.get('libur_id', type=int)
+                    cursor.execute("DELETE FROM hari_libur WHERE id = %s", (libur_id,))
+                    conn.commit()
+                    flash('Hari libur dihapus. Hari itu kembali dihitung sebagai hari PKL biasa.', 'success')
+                else:
+                    flash('Aksi tidak valid.', 'danger')
+            except mysql.connector.Error as e:
+                conn.rollback()
+                flash(f'Terjadi kesalahan database: {e}', 'danger')
+            return redirect(url_for('admin_libur'))
+
+        cursor.execute("""
+            SELECT h.*, k.nama AS nama_sekolah
+            FROM hari_libur h LEFT JOIN sekolah k ON h.sekolah_id = k.id
+            ORDER BY h.tanggal DESC, h.id DESC LIMIT 300
+        """)
+        libur_list = cursor.fetchall()
+        cursor.execute("SELECT id, nama FROM sekolah ORDER BY nama")
+        sekolah_list = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+    return render_template('admin_libur.html', libur_list=libur_list, sekolah_list=sekolah_list,
+                           hari_ini=today_wib().isoformat())
 
 
 @app.route('/admin/pembimbing', methods=['GET', 'POST'])

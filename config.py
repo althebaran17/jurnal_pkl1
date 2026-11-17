@@ -1,5 +1,7 @@
 import os
 import warnings
+
+import waktu  # noqa: F401  (memaksa zona waktu WIB sedini mungkin)
 import mysql.connector
 from mysql.connector import Error
 from dotenv import load_dotenv
@@ -49,10 +51,18 @@ def get_db_connection():
             port=Config.MYSQL_PORT
         )
         if connection.is_connected():
+            # Server Railway berjalan di UTC. Paksa sesi MySQL ke WIB supaya NOW(),
+            # CURRENT_TIMESTAMP, dan kolom created_at tercatat dengan jam WIB.
+            try:
+                cur = connection.cursor()
+                cur.execute("SET time_zone = '+07:00'")
+                cur.close()
+            except Error as e:
+                print(f"[MYSQL] gagal set time_zone WIB: {e}")
             return connection
     except Error as e:
         print(f"[MYSQL ERROR]: {e}")
-        return None
+    return None
 
 
 if __name__ == '__main__':

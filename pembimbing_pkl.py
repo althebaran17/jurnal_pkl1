@@ -15,7 +15,7 @@ import mysql.connector
 from flask import (Blueprint, abort, flash, redirect, render_template, request,
                    session, url_for)
 
-from auto_alpa import sekarang_wib
+from waktu import sekarang_wib
 from config import get_db_connection
 
 ROLE_PKL = 'pembimbing_pkl'

@@ -15,6 +15,11 @@ Aturan (sama dengan aturan lama, hanya dibuat massal)
 -----------------------------------------------------
 * Hari Minggu tidak dihitung.
 * Hanya hari dalam periode PKL siswa (tgl_mulai_pkl .. tgl_selesai_pkl).
+* TIDAK PERNAH sebelum akun siswa dibuat: bila tgl_mulai_pkl diisi tanggal lampau
+  saat siswa baru ditambahkan, hari-hari sebelum akun ada tidak dianggap Alpa.
+  Akun yang dibuat setelah pukul 15:00 baru mulai dihitung besok harinya.
+* Hari libur (tabel hari_libur: tanggal merah / libur perusahaan, diatur Admin)
+  tidak dihitung. Libur bisa untuk semua sekolah (sekolah_id NULL) atau satu sekolah.
 * Akun siswa yang dinonaktifkan dilewati.
 * Hari ini baru dihitung setelah pukul 15:00 WIB; hari-hari sebelumnya
   yang terlewat (server mati / thread belum jalan) ikut disusulkan.
@@ -28,13 +33,11 @@ proses/worker berjalan bersamaan.
 """
 import threading
 import time as _time
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta
 
 from config import get_db_connection
+from waktu import WIB, sekarang_wib
 
-# WIB = UTC+7 dan tidak mengenal DST, jadi offset tetap sudah cukup
-# (tidak bergantung pada tzdata / zona waktu server).
-WIB = timezone(timedelta(hours=7))
 JAM_BATAS_ALPA = time(15, 0)
 INTERVAL_DETIK = 60
 
@@ -49,10 +52,6 @@ _start_lock = threading.Lock()
 _thread = None
 
 
-def sekarang_wib():
-    return datetime.now(WIB)
-
-
 def _ke_date(nilai):
     if nilai is None or nilai == '':
         return None
@@ -64,8 +63,12 @@ def _ke_date(nilai):
 
 
 def hitung_alpa_tertunda(siswa_rows, absensi_ada, pengajuan_bebas, pengajuan_terlambat,
-                         sekarang, susulkan=SUSULKAN_HARI_LAMPAU):
-    """Murni (tanpa DB): kembalikan daftar (siswa_id, date) yang harus di-Alpa-kan."""
+                         sekarang, susulkan=SUSULKAN_HARI_LAMPAU, libur=None):
+    """Murni (tanpa DB): kembalikan daftar (siswa_id, date) yang harus di-Alpa-kan.
+
+    libur: set of (sekolah_id | None, date); None = libur untuk semua sekolah.
+    """
+    libur = libur or set()
     hari_ini = sekarang.date()
     sudah_lewat_batas = sekarang.time() >= JAM_BATAS_ALPA
     hari_terakhir = hari_ini if sudah_lewat_batas else hari_ini - timedelta(days=1)
@@ -80,13 +83,21 @@ def hitung_alpa_tertunda(siswa_rows, absensi_ada, pengajuan_bebas, pengajuan_ter
         awal = hari_ini
         if mulai:
             awal = mulai if susulkan else max(mulai, hari_ini)
+
+        # Batas bawah: hari pertama siswa benar-benar bisa absen (sejak akun dibuat).
+        dibuat = s.get('dibuat')
+        if isinstance(dibuat, datetime):
+            hari_pertama = dibuat.date()
+            if dibuat.time() >= JAM_BATAS_ALPA:
+                hari_pertama += timedelta(days=1)
+            awal = max(awal, hari_pertama)
         akhir = min(selesai, hari_terakhir) if selesai else hari_terakhir
         if mulai and mulai > hari_ini:
             continue
 
         d = awal
         while d <= akhir:
-            if d.weekday() != 6:  # 6 = Minggu
+            if d.weekday() != 6 and (None, d) not in libur and (s.get('sekolah_id'), d) not in libur:  # 6 = Minggu
                 kunci = (sid, d)
                 bebas = (
                     kunci in absensi_ada
@@ -108,7 +119,7 @@ def jalankan_auto_alpa(siswa_id=None, sekarang=None, susulkan=SUSULKAN_HARI_LAMP
     cursor = conn.cursor(dictionary=True)
     try:
         sql = """
-            SELECT s.id, s.tgl_mulai_pkl, s.tgl_selesai_pkl
+            SELECT s.id, s.sekolah_id, s.tgl_mulai_pkl, s.tgl_selesai_pkl, u.created_at AS dibuat
             FROM siswa s
             JOIN users u ON s.user_id = u.id
             WHERE COALESCE(u.is_active, 1) <> 0
@@ -155,8 +166,15 @@ def jalankan_auto_alpa(siswa_id=None, sekarang=None, susulkan=SUSULKAN_HARI_LAMP
             else:
                 pengajuan_bebas.add(kunci)
 
+        libur = set()
+        try:
+            cursor.execute("SELECT sekolah_id, tanggal FROM hari_libur WHERE tanggal BETWEEN %s AND %s", rentang)
+            libur = {(r['sekolah_id'], _ke_date(r['tanggal'])) for r in cursor.fetchall()}
+        except Exception as e:  # tabel belum ada -> anggap tidak ada libur
+            print(f"[AUTO ALPA] hari_libur tidak terbaca: {e}")
+
         tertunda = hitung_alpa_tertunda(
-            siswa_rows, absensi_ada, pengajuan_bebas, pengajuan_terlambat, sekarang, susulkan)
+            siswa_rows, absensi_ada, pengajuan_bebas, pengajuan_terlambat, sekarang, susulkan, libur)
 
         baru = 0
         for sid, tgl in tertunda:

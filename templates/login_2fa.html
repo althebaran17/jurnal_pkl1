@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verifikasi 2 Langkah - E-Jurnal PKL</title>
+    
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/logo.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+
+    <style>
+        body {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            min-height: 100dvh;
+            padding: 24px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            background-color: #0f172a;
+        }
+        .bg-video {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            z-index: -3;
+            transform: scale(1.03);
+            filter: brightness(0.85); /* Sedikit diredupkan agar efek cahaya lebih menonjol */
+        }
+        .bg-overlay {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle at top right, rgba(79, 70, 229, 0.35), rgba(15, 23, 42, 0.85));
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: -2;
+        }
+
+        /* ---- TAMBAHAN: Efek Cahaya Melayang & Dekorasi Estetik ---- */
+        .bg-glow-container {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            pointer-events: none;
+            overflow: hidden;
+        }
+        .glow-orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(60px);
+            opacity: 0.45;
+            animation: floatOrb 10s ease-in-out infinite alternate;
+        }
+        .glow-orb-1 {
+            width: 300px;
+            height: 300px;
+            background: rgba(99, 102, 241, 0.5);
+            top: 10%;
+            left: 15%;
+        }
+        .glow-orb-2 {
+            width: 350px;
+            height: 350px;
+            background: rgba(14, 165, 233, 0.35);
+            bottom: 10%;
+            right: 15%;
+            animation-delay: -5s;
+        }
+        @keyframes floatOrb {
+            0% { transform: translateY(0px) scale(1); }
+            100% { transform: translateY(-25px) scale(1.08); }
+        }
+
+        .login-card {
+            background: rgba(255, 255, 255, 0.94);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            width: 100%;
+            max-width: 420px;
+            padding: 40px 36px;
+            border-radius: var(--radius-xl);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45);
+            z-index: 1;
+            animation: cardEntrance 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes cardEntrance {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .login-header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .login-logo {
+            width: 60px;
+            height: 60px;
+            object-fit: contain;
+            border-radius: var(--radius-md);
+            padding: 8px;
+            background-color: var(--surface);
+            box-shadow: var(--shadow-md);
+            border: 1px solid var(--border);
+            margin-bottom: 16px;
+        }
+        .header-text h2 {
+            color: var(--text);
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            line-height: 1.2;
+            margin-bottom: 6px;
+        }
+        .header-text p {
+            color: var(--text-muted);
+            font-size: var(--text-base);
+            font-weight: 500;
+        }
+        .password-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .password-wrapper input {
+            padding-right: 46px;
+        }
+        .toggle-password {
+            position: absolute;
+            right: 8px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px;
+            border-radius: var(--radius-sm);
+            transition: var(--transition);
+        }
+        .toggle-password:hover {
+            color: var(--primary);
+            background-color: var(--primary-50);
+        }
+        .toggle-password svg {
+            width: 19px;
+            height: 19px;
+        }
+        .btn-submit {
+            width: 100%;
+            padding: 12px 18px;
+            background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+            color: #ffffff;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-family: inherit;
+            font-size: var(--text-base);
+            font-weight: 700;
+            cursor: pointer;
+            transition: var(--transition);
+            margin-top: 8px;
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+        }
+        .btn-submit:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
+            filter: brightness(1.04);
+        }
+        .btn-submit:active {
+            transform: translateY(0);
+        }
+        .login-footer {
+            margin-top: 28px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            text-align: center;
+            font-size: var(--text-xs);
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+    
+        @media (max-width: 480px) {
+            body { padding: 16px; align-items: flex-start; }
+            .login-card { padding: 28px 20px; margin: auto 0; }
+            .header-text h2 { font-size: 1.3rem; }
+            input, select, textarea { font-size: 16px; }
+        }
+    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <script src="{{ url_for('static', filename='js/responsive.js') }}" defer></script>
+</head>
+<body>
+
+    <video class="bg-video" autoplay loop muted playsinline>
+        <source src="{{ url_for('static', filename='video/bg-login.mp4') }}" type="video/mp4">
+    </video>
+
+    <div class="bg-overlay"></div>
+
+    <!-- Tambahan Elemen Cahaya Estetik di Background -->
+    <div class="bg-glow-container">
+        <div class="glow-orb glow-orb-1"></div>
+        <div class="glow-orb glow-orb-2"></div>
+    </div>
+
+    <div class="login-card">
+        <div class="login-header">
+            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" class="login-logo">
+            <div class="header-text">
+                <h2>E-Jurnal PKL</h2>
+                <p>Verifikasi 2 langkah untuk Admin</p>
+            </div>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        {% if mode_setup %}
+        <p style="color:#cbd5e1; font-size:13px; line-height:1.6; margin:0 0 14px;">
+            Akun admin <strong>{{ username }}</strong> belum memakai verifikasi 2 langkah.
+            Pindai QR ini dengan <strong>Google Authenticator</strong> (atau Authy / Microsoft Authenticator),
+            lalu masukkan kode 6 digit yang muncul.
+        </p>
+        <div style="background:#fff; border-radius:12px; padding:10px; width:fit-content; margin:0 auto 12px;">
+            <img src="{{ qr_uri }}" alt="QR Code Authenticator" width="190" height="190" style="display:block;">
+        </div>
+        <p style="color:#94a3b8; font-size:12px; text-align:center; margin:0 0 16px; word-break:break-all;">
+            Atau ketik manual kunci: <code style="color:#e2e8f0; user-select:all;">{{ secret }}</code>
+        </p>
+        {% else %}
+        <p style="color:#cbd5e1; font-size:13px; line-height:1.6; margin:0 0 14px;">
+            Masukkan kode 6 digit dari aplikasi Authenticator untuk akun <strong>{{ username }}</strong>.
+        </p>
+        {% endif %}
+
+        <form action="{{ url_for('login_2fa') }}" method="POST" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label for="kode">Kode Verifikasi</label>
+                <input type="text" id="kode" name="kode" inputmode="numeric" pattern="[0-9 ]{6,7}" maxlength="7"
+                       placeholder="123456" required autofocus
+                       style="letter-spacing:.35em; text-align:center; font-size:20px; font-weight:700;">
+            </div>
+            <button type="submit" class="btn-submit">{{ 'Aktifkan & Masuk' if mode_setup else 'Verifikasi & Masuk' }}</button>
+        </form>
+        <div style="text-align:center; margin-top:14px;">
+            <a href="{{ url_for('login') }}" style="color:#94a3b8; font-size:13px;">&larr; Kembali ke login</a>
+        </div>
+
+        <div class="login-footer">
+            &copy; E-Jurnal Praktik Kerja Lapangan RPL
+        </div>
+    </div>
+
+
+</body>
+</html>

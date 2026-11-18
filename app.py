@@ -40,6 +40,11 @@ app = Flask(__name__)
 app.config.from_object(Config)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
+# Login bertahan 7 hari walau browser ditutup, lalu otomatis logout.
+MASA_LOGIN = timedelta(days=7)
+app.config['PERMANENT_SESSION_LIFETIME'] = MASA_LOGIN
+app.config.setdefault('SESSION_COOKIE_SAMESITE', 'Lax')
+
 # Modul Pembimbing PKL dipisah total (route di pembimbing_pkl.py, template di templates/pkl/)
 app.register_blueprint(pkl_bp)
 
@@ -74,6 +79,27 @@ def internal_error(error):
                            code="500", 
                            title="Kesalahan Server", 
                            message="Terjadi masalah internal pada server. Silakan coba beberapa saat lagi."), 500
+
+
+def mulai_sesi_login():
+    """Tandai sesi sebagai permanen (cookie tetap ada setelah browser ditutup) + catat waktu login."""
+    session.permanent = True
+    session['login_at'] = time.time()
+
+
+@app.before_request
+def batasi_masa_login():
+    """Logout otomatis tepat 7 hari setelah login (bukan diperpanjang tiap request)."""
+    if session.get('logged_in') is True:
+        mulai = session.get('login_at')
+        if mulai is None:
+            # sesi lama sebelum perbaikan ini: mulai hitung dari sekarang
+            mulai_sesi_login()
+        elif time.time() - mulai > MASA_LOGIN.total_seconds():
+            session.clear()
+            flash('Sesi login Anda telah berakhir (7 hari). Silakan login kembali.', 'warning')
+            if request.method == 'GET' and request.endpoint not in ('login', 'static'):
+                return redirect(url_for('login'))
 
 
 @app.before_request
@@ -333,6 +359,27 @@ def pastikan_skema():
     except Exception as e:
         print(f"[MIGRASI] gagal membuat tabel hari_libur: {e}")
     try:
+        cursor.execute("""
+            UPDATE siswa s JOIN sekolah k ON s.sekolah_id = k.id
+            SET s.sekolah = k.nama
+            WHERE s.sekolah IS NULL OR s.sekolah = '' OR s.sekolah <> k.nama
+        """)
+        conn.commit()
+    except Exception as e:
+        print(f"[MIGRASI] gagal menyelaraskan siswa.sekolah: {e}")
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pengumuman_dibaca (
+                user_id INT NOT NULL,
+                pengumuman_id INT NOT NULL,
+                dibaca_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, pengumuman_id)
+            )
+        """)
+        conn.commit()
+    except Exception as e:
+        print(f"[MIGRASI] gagal membuat tabel pengumuman_dibaca: {e}")
+    try:
         cursor.execute("SHOW COLUMNS FROM users LIKE 'totp_secret'")
         if cursor.fetchone() is None:
             cursor.execute("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64) NULL")
@@ -351,9 +398,10 @@ def inject_siswa():
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
-                SELECT s.*, u.nama, u.username 
-                FROM siswa s 
-                JOIN users u ON s.user_id = u.id 
+                SELECT s.*, u.nama, u.username, COALESCE(k.nama, s.sekolah) AS sekolah, k.nama AS nama_sekolah
+                FROM siswa s
+                JOIN users u ON s.user_id = u.id
+                LEFT JOIN sekolah k ON s.sekolah_id = k.id
                 WHERE s.id = %s
             """, (session['siswa_id'],))
             siswa_data = cursor.fetchone()
@@ -363,6 +411,64 @@ def inject_siswa():
         except Exception:
             return dict(siswa=None)
     return dict(siswa=None)
+
+@app.context_processor
+def inject_pengumuman():
+    """Isi lonceng pengumuman untuk SEMUA halaman yang punya lonceng (bukan hanya dashboard siswa).
+
+    Status 'sudah dibaca' disimpan di database per user, jadi tidak hilang saat ganti
+    browser/perangkat atau data browser dibersihkan.
+    """
+    kosong = dict(pengumuman_list=[], pengumuman_belum_dibaca=0)
+    if not is_logged_in() or not session.get('user_id'):
+        return kosong
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        sekolah_id = session.get('sekolah_id')
+        if session.get('role') == 'siswa' and session.get('siswa_id'):
+            cursor.execute("SELECT sekolah_id FROM siswa WHERE id = %s", (session['siswa_id'],))
+            baris = cursor.fetchone()
+            sekolah_id = baris['sekolah_id'] if baris else None
+        cursor.execute("""
+            SELECT p.*, (d.pengumuman_id IS NOT NULL) AS dibaca
+            FROM pengumuman_pembimbing p
+            LEFT JOIN pengumuman_dibaca d
+                   ON d.pengumuman_id = p.id AND d.user_id = %s
+            WHERE p.sekolah_id IS NULL OR p.sekolah_id = %s
+            ORDER BY p.id DESC LIMIT 30
+        """, (session['user_id'], sekolah_id))
+        daftar = cursor.fetchall()
+        cursor.close()
+        return dict(pengumuman_list=daftar,
+                    pengumuman_belum_dibaca=sum(1 for x in daftar if not x['dibaca']))
+    except Exception:
+        return kosong
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/pengumuman/tandai-dibaca', methods=['POST'])
+def tandai_pengumuman_dibaca():
+    if not is_logged_in():
+        return jsonify({'status': 'error'}), 401
+    data = request.get_json(silent=True) or {}
+    ids = [int(i) for i in data.get('ids', []) if str(i).isdigit()][:100]
+    if ids:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.executemany(
+                "INSERT IGNORE INTO pengumuman_dibaca (user_id, pengumuman_id) VALUES (%s, %s)",
+                [(session['user_id'], i) for i in ids])
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+    return jsonify({'status': 'ok'})
+
 
 @app.context_processor
 def inject_notif_staff():
@@ -469,6 +575,7 @@ def login():
 
                 reset_login_gagal(username)
                 session.clear()  # cegah session fixation
+                mulai_sesi_login()
                 session['logged_in'] = True
                 session['user_id'] = user['id']
                 session['username'] = user['username']
@@ -545,6 +652,7 @@ def login_2fa():
                     reset_login_gagal(kunci)
                     reset_login_gagal(user['username'])
                     session.clear()  # cegah session fixation
+                    mulai_sesi_login()
                     session['logged_in'] = True
                     session['user_id'] = user['id']
                     session['username'] = user['username']
@@ -591,9 +699,10 @@ def dashboard_siswa():
 
     # 1. Detail Data Siswa
     cursor.execute("""
-        SELECT s.*, u.nama, u.username 
-        FROM siswa s 
-        JOIN users u ON s.user_id = u.id 
+        SELECT s.*, u.nama, u.username, COALESCE(k.nama, s.sekolah) AS sekolah, k.nama AS nama_sekolah
+        FROM siswa s
+        JOIN users u ON s.user_id = u.id
+        LEFT JOIN sekolah k ON s.sekolah_id = k.id
         WHERE s.id = %s
     """, (siswa_id,))
     detail_siswa = cursor.fetchone()
@@ -635,15 +744,6 @@ def dashboard_siswa():
     cursor.execute("SELECT * FROM absensi WHERE siswa_id = %s AND tanggal = %s", (siswa_id, today_str))
     sudah_absen = cursor.fetchone()
 
-    # 6. Pengumuman Pembimbing
-    # Pengumuman global (sekolah_id NULL) + pengumuman untuk sekolah siswa ini
-    cursor.execute("""
-        SELECT * FROM pengumuman_pembimbing
-        WHERE sekolah_id IS NULL OR sekolah_id = %s
-        ORDER BY id DESC
-    """, (detail_siswa.get('sekolah_id') if detail_siswa else None,))
-    pengumuman_list = cursor.fetchall()
-
     cursor.close()
     conn.close()
 
@@ -663,8 +763,7 @@ def dashboard_siswa():
         siswa=detail_siswa,
         laporan=stat_laporan,
         absensi=stat_absensi,
-        laporan_list=laporan_terbaru,
-        pengumuman_list=pengumuman_list
+        laporan_list=laporan_terbaru
     )
 
 
@@ -880,9 +979,10 @@ def profil():
 
     # REQUEST GET: Ambil Data Profil Siswa
     cursor.execute("""
-        SELECT s.*, u.nama, u.username 
-        FROM siswa s 
-        JOIN users u ON s.user_id = u.id 
+        SELECT s.*, u.nama, u.username, COALESCE(k.nama, s.sekolah) AS sekolah, k.nama AS nama_sekolah
+        FROM siswa s
+        JOIN users u ON s.user_id = u.id
+        LEFT JOIN sekolah k ON s.sekolah_id = k.id
         WHERE s.id = %s
     """, (siswa_id,))
     detail_siswa = cursor.fetchone()
@@ -2105,9 +2205,9 @@ def tambah_siswa_page():
 
                         # PERBAIKAN: Jumlah placeholder %s disesuaikan menjadi 6 buah
                         cursor.execute("""
-                            INSERT INTO siswa (user_id, nisn, kelas_jurusan, sekolah_id, tgl_mulai_pkl, tgl_selesai_pkl)
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                        """, (user_id, form['nisn'], form['kelas_jurusan'], form['sekolah_id'],
+                            INSERT INTO siswa (user_id, nisn, kelas_jurusan, sekolah_id, sekolah, tgl_mulai_pkl, tgl_selesai_pkl)
+                            VALUES (%s, %s, %s, %s, (SELECT nama FROM sekolah WHERE id = %s), %s, %s)
+                        """, (user_id, form['nisn'], form['kelas_jurusan'], form['sekolah_id'], form['sekolah_id'],
                               form['tgl_mulai_pkl'], form['tgl_selesai_pkl']))
                         
                         conn.commit()
@@ -2182,9 +2282,10 @@ def edit_siswa_page(siswa_id):
     cursor = conn.cursor(dictionary=True)
 
     cursor.execute("""
-        SELECT s.*, u.nama, u.username 
-        FROM siswa s 
-        JOIN users u ON s.user_id = u.id 
+        SELECT s.*, u.nama, u.username, COALESCE(k.nama, s.sekolah) AS sekolah, k.nama AS nama_sekolah
+        FROM siswa s
+        JOIN users u ON s.user_id = u.id
+        LEFT JOIN sekolah k ON s.sekolah_id = k.id
         WHERE s.id = %s
     """, (siswa_id,))
     siswa = cursor.fetchone()
@@ -2219,9 +2320,11 @@ def edit_siswa_page(siswa_id):
             # UPDATE DATA SISWA DAN PERIODE PKL
             cursor.execute("""
                 UPDATE siswa 
-                SET nisn = %s, kelas_jurusan = %s, sekolah_id = %s, tgl_mulai_pkl = %s, tgl_selesai_pkl = %s 
+                SET nisn = %s, kelas_jurusan = %s, sekolah_id = %s,
+                    sekolah = (SELECT nama FROM sekolah WHERE id = %s),
+                    tgl_mulai_pkl = %s, tgl_selesai_pkl = %s 
                 WHERE id = %s
-            """, (nisn, kelas_jurusan, sekolah_id, tgl_mulai, tgl_selesai, siswa_id))
+            """, (nisn, kelas_jurusan, sekolah_id, sekolah_id, tgl_mulai, tgl_selesai, siswa_id))
 
             # Pindah sekolah -> bimbingan pembimbing PKL (terikat sekolah lama) dilepas
             cursor.execute("""
@@ -2364,9 +2467,10 @@ def nilai_siswa_page(siswa_id):
     try:
         # 1. Ambil Data Profil Siswa
         cursor.execute("""
-            SELECT s.*, u.nama, u.username 
-            FROM siswa s 
-            JOIN users u ON s.user_id = u.id 
+            SELECT s.*, u.nama, u.username, COALESCE(k.nama, s.sekolah) AS sekolah, k.nama AS nama_sekolah
+            FROM siswa s
+            JOIN users u ON s.user_id = u.id
+            LEFT JOIN sekolah k ON s.sekolah_id = k.id
             WHERE s.id = %s
         """, (siswa_id,))
         siswa = cursor.fetchone()

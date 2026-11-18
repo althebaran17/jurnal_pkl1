@@ -30,7 +30,7 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
     SESSION_COOKIE_SECURE = bool(os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_PROJECT_ID'))
-    PERMANENT_SESSION_LIFETIME = 60 * 60 * 12  # 12 Jam
+    PERMANENT_SESSION_LIFETIME = 60 * 60 * 24 * 7  # 7 hari
 
     # Pengaturan Upload File (Path Absolut)
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')

@@ -436,7 +436,7 @@
                             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                         </svg>
-                        <span id="badgeNotifCount" class="notification-count-badge" style="display: none;">0</span>
+                        <span id="badgeNotifCount" class="notification-count-badge" style="display: {{ 'flex' if pengumuman_belum_dibaca else 'none' }};">{{ pengumuman_belum_dibaca }}</span>
                     </button>
 
                     <div id="notificationDropdownMenu" class="notification-dropdown-menu">
@@ -446,12 +446,12 @@
                         <div class="dropdown-body">
                             {% if pengumuman_list %}
                                 {% for item in pengumuman_list %}
-                                    <div class="notif-item item-pengumuman" data-id="{{ item.id }}">
+                                    <div class="notif-item item-pengumuman{% if not item.dibaca %} unread{% endif %}" data-id="{{ item.id }}">
                                         <div class="notif-item-header">
                                             <div class="dropdown-timestamp">
                                                 {{ item.updated_at.strftime('%d %b %Y, %H:%M') if item.updated_at and item.updated_at.strftime is defined else item.updated_at }}
                                             </div>
-                                            <span class="notif-badge-new badge-baru-item" style="display: none;">Baru</span>
+                                            <span class="notif-badge-new badge-baru-item" style="display: {{ 'none' if item.dibaca else 'inline-block' }};">Baru</span>
                                         </div>
                                         <div class="dropdown-announcement-text">{{ item.pesan }}</div>
                                     </div>
@@ -721,29 +721,28 @@
         function toggleNotificationDropdown(event) {
             event.stopPropagation();
             const menu = document.getElementById('notificationDropdownMenu');
-            if (!menu) return;
             const isOpening = menu.style.display !== 'block';
 
             if (isOpening) {
                 menu.style.display = 'block';
 
-                const listItems = document.querySelectorAll('.item-pengumuman');
-                let seenIds = JSON.parse(localStorage.getItem('seen_pengumuman_ids') || '[]');
-                let allCurrentIds = [];
+                // Simpan status "sudah dibaca" ke server (per akun), bukan localStorage browser
+                const belum = document.querySelectorAll('.item-pengumuman.unread');
+                const ids = Array.from(belum).map(el => parseInt(el.getAttribute('data-id'))).filter(n => !isNaN(n));
+                if (ids.length) {
+                    fetch("{{ url_for('tandai_pengumuman_dibaca') }}", {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}'},
+                        body: JSON.stringify({ids: ids})
+                    }).catch(() => {});
+                }
 
-                listItems.forEach(item => {
-                    const id = parseInt(item.getAttribute('data-id'));
-                    if (!isNaN(id)) {
-                        allCurrentIds.push(id);
-                    }
+                document.querySelectorAll('.item-pengumuman').forEach(item => {
                     const badgeBaru = item.querySelector('.badge-baru-item');
                     if (badgeBaru) badgeBaru.style.display = 'none';
                     item.classList.remove('unread');
                 });
-
-                let updatedSeenIds = Array.from(new Set([...seenIds, ...allCurrentIds]));
-                localStorage.setItem('seen_pengumuman_ids', JSON.stringify(updatedSeenIds));
-
                 const badgeCount = document.getElementById('badgeNotifCount');
                 if (badgeCount) {
                     badgeCount.style.display = 'none';
@@ -753,29 +752,6 @@
                 menu.style.display = 'none';
             }
         }
-
-        document.addEventListener('DOMContentLoaded', function () {
-            const listItems = document.querySelectorAll('.item-pengumuman');
-            const badgeCount = document.getElementById('badgeNotifCount');
-            
-            let seenIds = JSON.parse(localStorage.getItem('seen_pengumuman_ids') || '[]');
-            let unreadCount = 0;
-
-            listItems.forEach(item => {
-                const id = parseInt(item.getAttribute('data-id'));
-                if (!isNaN(id) && !seenIds.includes(id)) {
-                    unreadCount++;
-                    item.classList.add('unread');
-                    const badgeBaru = item.querySelector('.badge-baru-item');
-                    if (badgeBaru) badgeBaru.style.display = 'inline-block';
-                }
-            });
-
-            if (unreadCount > 0 && badgeCount) {
-                badgeCount.textContent = unreadCount;
-                badgeCount.style.display = 'flex';
-            }
-        });
 
         window.onclick = function(event) {
             const absenModal = document.getElementById('absenManualModal');

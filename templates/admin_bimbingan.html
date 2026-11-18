@@ -253,7 +253,7 @@
             <!-- KONTEN UTAMA -->
             <div class="adm-panel">
                 <div class="hd">
-                    <span>Siswa Bimbingan: {{ pembimbing.nama }} <span class="adm-pill">{{ pembimbing.nama_sekolah }}</span></span>
+                    <span>Siswa Bimbingan: {{ pembimbing.nama }} <span class="adm-pill">{{ pembimbing.nama_sekolah or '-' }}</span></span>
                     <a href="{{ url_for('admin_pembimbing') }}" class="adm-btn">&larr; Kembali</a>
                 </div>
                 <div class="bd">

@@ -360,15 +360,6 @@ def pastikan_skema():
         print(f"[MIGRASI] gagal membuat tabel hari_libur: {e}")
     try:
         cursor.execute("""
-            UPDATE siswa s JOIN sekolah k ON s.sekolah_id = k.id
-            SET s.sekolah = k.nama
-            WHERE s.sekolah IS NULL OR s.sekolah = '' OR s.sekolah <> k.nama
-        """)
-        conn.commit()
-    except Exception as e:
-        print(f"[MIGRASI] gagal menyelaraskan siswa.sekolah: {e}")
-    try:
-        cursor.execute("""
             CREATE TABLE IF NOT EXISTS pengumuman_dibaca (
                 user_id INT NOT NULL,
                 pengumuman_id INT NOT NULL,
@@ -398,7 +389,7 @@ def inject_siswa():
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
-                SELECT s.*, u.nama, u.username, COALESCE(k.nama, s.sekolah) AS sekolah, k.nama AS nama_sekolah
+                SELECT s.*, u.nama, u.username, k.nama AS sekolah, k.nama AS nama_sekolah
                 FROM siswa s
                 JOIN users u ON s.user_id = u.id
                 LEFT JOIN sekolah k ON s.sekolah_id = k.id
@@ -699,7 +690,7 @@ def dashboard_siswa():
 
     # 1. Detail Data Siswa
     cursor.execute("""
-        SELECT s.*, u.nama, u.username, COALESCE(k.nama, s.sekolah) AS sekolah, k.nama AS nama_sekolah
+        SELECT s.*, u.nama, u.username, k.nama AS sekolah, k.nama AS nama_sekolah
         FROM siswa s
         JOIN users u ON s.user_id = u.id
         LEFT JOIN sekolah k ON s.sekolah_id = k.id
@@ -979,7 +970,7 @@ def profil():
 
     # REQUEST GET: Ambil Data Profil Siswa
     cursor.execute("""
-        SELECT s.*, u.nama, u.username, COALESCE(k.nama, s.sekolah) AS sekolah, k.nama AS nama_sekolah
+        SELECT s.*, u.nama, u.username, k.nama AS sekolah, k.nama AS nama_sekolah
         FROM siswa s
         JOIN users u ON s.user_id = u.id
         LEFT JOIN sekolah k ON s.sekolah_id = k.id
@@ -2205,9 +2196,9 @@ def tambah_siswa_page():
 
                         # PERBAIKAN: Jumlah placeholder %s disesuaikan menjadi 6 buah
                         cursor.execute("""
-                            INSERT INTO siswa (user_id, nisn, kelas_jurusan, sekolah_id, sekolah, tgl_mulai_pkl, tgl_selesai_pkl)
-                            VALUES (%s, %s, %s, %s, (SELECT nama FROM sekolah WHERE id = %s), %s, %s)
-                        """, (user_id, form['nisn'], form['kelas_jurusan'], form['sekolah_id'], form['sekolah_id'],
+                            INSERT INTO siswa (user_id, nisn, kelas_jurusan, sekolah_id, tgl_mulai_pkl, tgl_selesai_pkl)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """, (user_id, form['nisn'], form['kelas_jurusan'], form['sekolah_id'],
                               form['tgl_mulai_pkl'], form['tgl_selesai_pkl']))
                         
                         conn.commit()
@@ -2282,7 +2273,7 @@ def edit_siswa_page(siswa_id):
     cursor = conn.cursor(dictionary=True)
 
     cursor.execute("""
-        SELECT s.*, u.nama, u.username, COALESCE(k.nama, s.sekolah) AS sekolah, k.nama AS nama_sekolah
+        SELECT s.*, u.nama, u.username, k.nama AS sekolah, k.nama AS nama_sekolah
         FROM siswa s
         JOIN users u ON s.user_id = u.id
         LEFT JOIN sekolah k ON s.sekolah_id = k.id
@@ -2320,11 +2311,9 @@ def edit_siswa_page(siswa_id):
             # UPDATE DATA SISWA DAN PERIODE PKL
             cursor.execute("""
                 UPDATE siswa 
-                SET nisn = %s, kelas_jurusan = %s, sekolah_id = %s,
-                    sekolah = (SELECT nama FROM sekolah WHERE id = %s),
-                    tgl_mulai_pkl = %s, tgl_selesai_pkl = %s 
+                SET nisn = %s, kelas_jurusan = %s, sekolah_id = %s, tgl_mulai_pkl = %s, tgl_selesai_pkl = %s 
                 WHERE id = %s
-            """, (nisn, kelas_jurusan, sekolah_id, sekolah_id, tgl_mulai, tgl_selesai, siswa_id))
+            """, (nisn, kelas_jurusan, sekolah_id, tgl_mulai, tgl_selesai, siswa_id))
 
             # Pindah sekolah -> bimbingan pembimbing PKL (terikat sekolah lama) dilepas
             cursor.execute("""
@@ -2467,7 +2456,7 @@ def nilai_siswa_page(siswa_id):
     try:
         # 1. Ambil Data Profil Siswa
         cursor.execute("""
-            SELECT s.*, u.nama, u.username, COALESCE(k.nama, s.sekolah) AS sekolah, k.nama AS nama_sekolah
+            SELECT s.*, u.nama, u.username, k.nama AS sekolah, k.nama AS nama_sekolah
             FROM siswa s
             JOIN users u ON s.user_id = u.id
             LEFT JOIN sekolah k ON s.sekolah_id = k.id
@@ -3020,8 +3009,6 @@ def admin_sekolah():
                     else:
                         cursor.execute("UPDATE sekolah SET nama = %s, npsn = %s, alamat = %s WHERE id = %s",
                                        (nama, npsn, alamat, sekolah_id))
-                        # sinkronkan teks nama sekolah yang dipakai di tampilan siswa
-                        cursor.execute("UPDATE siswa SET sekolah = %s WHERE sekolah_id = %s", (nama, sekolah_id))
                         conn.commit()
                         flash('Data sekolah berhasil diperbarui.', 'success')
                 elif aksi == 'hapus' and sekolah_id:

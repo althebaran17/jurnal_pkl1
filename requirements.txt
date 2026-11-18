@@ -6,3 +6,4 @@ python-dotenv>=1.0
 gunicorn>=22.0
 pyotp
 segno
+reportlab

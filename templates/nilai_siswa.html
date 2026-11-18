@@ -309,6 +309,9 @@
                         <textarea id="catatan_pembimbing" name="catatan_pembimbing" rows="3" class="form-control" placeholder="Masukkan masukan atau pesan khusus untuk siswa...">{{ nilai.catatan_pembimbing if nilai else '' }}</textarea>
                     </div>
 
+                    {% if nilai %}
+                    <a href="{{ url_for('nilai_pkl_pdf', siswa_id=siswa.id) }}" class="btn-action-custom" style="display:block;text-align:center;margin-bottom:12px;background-color:#16a34a;color:#fff;border:none;">Unduh PDF Nilai Akhir</a>
+                    {% endif %}
                     <div class="btn-group">
                         <a href="{{ url_for('daftar_siswa') }}" class="btn-action-custom" style="flex: 1; background-color: var(--surface); color: var(--text); border: 1px solid var(--border);">Batal</a>
                         <button type="submit" class="btn-action-custom" style="flex: 1; background-color: var(--primary); color: #ffffff; border: none;">Simpan Penilaian</button>

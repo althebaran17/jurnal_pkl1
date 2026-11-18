@@ -2552,6 +2552,165 @@ def nilai_siswa_page(siswa_id):
         nilai_laporan_auto=nilai_laporan_auto
     )
 
+# Tempat PKL yang tercetak di PDF nilai (bisa diganti lewat env NAMA_PERUSAHAAN)
+NAMA_PERUSAHAAN = os.environ.get('NAMA_PERUSAHAAN', 'PT Media Naraya Cipta')
+
+
+@app.route('/nilai/<int:siswa_id>/pdf')
+def nilai_pkl_pdf(siswa_id):
+    """Unduh PDF Nilai Akhir PKL: identitas, rekap kehadiran, rincian nilai, nilai akhir & predikat.
+
+    Boleh diakses staf (sesuai scope sekolah) dan siswa yang bersangkutan.
+    """
+    if not is_logged_in():
+        return redirect(url_for('login'))
+    if session.get('role') == 'siswa':
+        if session.get('siswa_id') != siswa_id:
+            abort(403)
+    elif not is_staff() or not akses_siswa(siswa_id):
+        abort(403)
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT s.*, u.nama, k.nama AS nama_sekolah
+            FROM siswa s
+            JOIN users u ON s.user_id = u.id
+            LEFT JOIN sekolah k ON s.sekolah_id = k.id
+            WHERE s.id = %s
+        """, (siswa_id,))
+        siswa = cursor.fetchone()
+        if not siswa:
+            abort(404)
+        cursor.execute("""
+            SELECT n.*, pb.nama AS nama_penilai
+            FROM nilai_pkl n LEFT JOIN users pb ON n.pembimbing_id = pb.id
+            WHERE n.siswa_id = %s
+        """, (siswa_id,))
+        nilai = cursor.fetchone()
+        cursor.execute("""
+            SELECT COUNT(*) AS total,
+                   COALESCE(SUM(status = 'Hadir'), 0) AS hadir,
+                   COALESCE(SUM(status = 'Izin'), 0) AS izin,
+                   COALESCE(SUM(status = 'Sakit'), 0) AS sakit,
+                   COALESCE(SUM(status = 'Alpa'), 0) AS alpa
+            FROM absensi WHERE siswa_id = %s
+        """, (siswa_id,))
+        rekap = cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+    if not nilai:
+        flash('Siswa ini belum dinilai, sehingga PDF nilai belum tersedia.', 'warning')
+        return redirect(request.referrer or url_for('index'))
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    def f(v):
+        try:
+            v = float(v)
+            return str(int(v)) if v == int(v) else f"{v:.2f}"
+        except (TypeError, ValueError):
+            return '-'
+
+    ss = getSampleStyleSheet()
+    judul = ParagraphStyle('judul', parent=ss['Title'], fontSize=16, leading=20, spaceAfter=2)
+    sub = ParagraphStyle('sub', parent=ss['Normal'], fontSize=10, alignment=1, textColor=colors.HexColor('#555555'))
+    h2 = ParagraphStyle('h2', parent=ss['Heading3'], fontSize=11, spaceBefore=14, spaceAfter=6)
+    normal = ParagraphStyle('n', parent=ss['Normal'], fontSize=10, leading=14)
+    BIRU = colors.HexColor('#1e3a8a')
+    ABU = colors.HexColor('#e5e7eb')
+
+    def tabel(data, widths, header=True, align_right_cols=()):
+        t = Table(data, colWidths=widths)
+        gaya = [('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#9ca3af')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5)]
+        if header:
+            gaya += [('BACKGROUND', (0, 0), (-1, 0), BIRU), ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold')]
+        for c in align_right_cols:
+            gaya.append(('ALIGN', (c, 0), (c, -1), 'CENTER'))
+        t.setStyle(TableStyle(gaya))
+        return t
+
+    mulai, selesai = siswa.get('tgl_mulai_pkl'), siswa.get('tgl_selesai_pkl')
+    periode = f"{tgl_indo(mulai)} s.d. {tgl_indo(selesai)}" if mulai and selesai else '-'
+
+    el = [Paragraph('LAPORAN NILAI AKHIR PKL', judul),
+          Paragraph(f'Praktik Kerja Lapangan (PKL) di {NAMA_PERUSAHAAN}', sub), Spacer(1, 14)]
+
+    ident = [['Nama', ':', siswa['nama']], ['NISN', ':', siswa.get('nisn') or '-'],
+             ['Kelas / Jurusan', ':', siswa.get('kelas_jurusan') or '-'],
+             ['Asal Sekolah', ':', siswa.get('nama_sekolah') or '-'],
+             ['Tempat PKL', ':', NAMA_PERUSAHAAN], ['Periode PKL', ':', periode]]
+    t = Table([[a, b, Paragraph(str(c), normal)] for a, b, c in ident], colWidths=[3.6*cm, 0.5*cm, 12.9*cm])
+    t.setStyle(TableStyle([('FONTSIZE', (0, 0), (-1, -1), 10), ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                           ('BOTTOMPADDING', (0, 0), (-1, -1), 3), ('TOPPADDING', (0, 0), (-1, -1), 3)]))
+    el.append(t)
+
+    el.append(Paragraph('Rekap Kehadiran', h2))
+    pct = (rekap['hadir'] / rekap['total'] * 100) if rekap['total'] else 0
+    el.append(tabel([['Hadir', 'Izin', 'Sakit', 'Alpa', 'Total Hari', 'Persentase Hadir'],
+                     [f(rekap['hadir']), f(rekap['izin']), f(rekap['sakit']), f(rekap['alpa']),
+                      f(rekap['total']), f"{pct:.1f}%"]],
+                    [2.5*cm, 2.5*cm, 2.5*cm, 2.5*cm, 2.8*cm, 4.2*cm], align_right_cols=range(6)))
+
+    el.append(Paragraph('Rincian Nilai', h2))
+    rows = [['No', 'Komponen Penilaian', 'Bobot', 'Nilai'],
+            ['1', 'Kehadiran (otomatis)', '20%', f(nilai['nilai_absensi'])],
+            ['2', 'Laporan Harian (otomatis)', '20%', f(nilai['nilai_laporan'])],
+            ['3', 'Sikap & Kedisiplinan', '30%', f(nilai['nilai_sikap'])],
+            ['4', 'Kemampuan Teknis', '30%', f(nilai['nilai_teknis'])],
+            ['', 'NILAI AKHIR', '100%', f(nilai['nilai_akhir'])]]
+    t = tabel(rows, [1.2*cm, 9.3*cm, 3*cm, 3.5*cm], align_right_cols=(0, 2, 3))
+    t.setStyle(TableStyle([('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'), ('BACKGROUND', (0, -1), (-1, -1), ABU)]))
+    el.append(t)
+
+    el.append(Spacer(1, 12))
+    pred = Table([['PREDIKAT', nilai['predikat']]], colWidths=[5*cm, 3*cm], rowHeights=[1.4*cm])
+    pred.setStyle(TableStyle([('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (0, 0), 11),
+                              ('FONTSIZE', (1, 0), (1, 0), 20), ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                              ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('BOX', (0, 0), (-1, -1), 1, BIRU),
+                              ('BACKGROUND', (0, 0), (0, 0), ABU), ('TOPPADDING', (0, 0), (-1, -1), 8),
+                              ('BOTTOMPADDING', (0, 0), (-1, -1), 8)]))
+    pred.hAlign = 'CENTER'
+    el.append(pred)
+    el.append(Paragraph('Keterangan predikat: A (85-100) Sangat Baik, B (75-84) Baik, C (65-74) Cukup, D (&lt;65) Kurang.',
+                        ParagraphStyle('ket', parent=normal, fontSize=8, textColor=colors.HexColor('#555555'), spaceBefore=6)))
+
+    catatan = (nilai.get('catatan_pembimbing') or '').strip()
+    if catatan:
+        el.append(Paragraph('Catatan Pembimbing', h2))
+        from xml.sax.saxutils import escape
+        el.append(Paragraph(escape(catatan).replace('\n', '<br/>'), normal))
+
+    sekarang = now_wib()
+    ttd = Table([[f"Dicetak: {tgl_indo(sekarang.date())}"],
+                 ['Pembimbing Industri'], [NAMA_PERUSAHAAN], [''], [''],
+                 [nilai.get('nama_penilai') or '(................................)']],
+                colWidths=[7*cm])
+    ttd.setStyle(TableStyle([('FONTSIZE', (0, 0), (-1, -1), 10), ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                             ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold')]))
+    wrap = Table([['', ttd]], colWidths=[10*cm, 7*cm])
+    el.extend([Spacer(1, 28), wrap])
+
+    buf = io.BytesIO()
+    SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm,
+                      title=f"Nilai Akhir PKL - {siswa['nama']}").build(el)
+    buf.seek(0)
+    nama_file = re.sub(r'[^A-Za-z0-9_-]+', '_', siswa['nama']).strip('_') or 'siswa'
+    return send_file(buf, mimetype='application/pdf', as_attachment=True,
+                     download_name=f"Nilai_PKL_{nama_file}.pdf")
+
+
 @app.route('/pembimbing/profil', methods=['GET'])
 def profil_pembimbing():
     if not is_staff():

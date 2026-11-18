@@ -2552,6 +2552,137 @@ def nilai_siswa_page(siswa_id):
         nilai_laporan_auto=nilai_laporan_auto
     )
 
+def hitung_nilai_akhir(n_absensi, n_laporan, n_sikap, n_teknis):
+    """Bobot sama dengan halaman nilai per siswa: 20% absensi, 20% laporan, 30% sikap, 30% teknis."""
+    akhir = round(n_absensi * 0.20 + n_laporan * 0.20 + n_sikap * 0.30 + n_teknis * 0.30, 2)
+    if akhir >= 85:
+        pred = 'A'
+    elif akhir >= 75:
+        pred = 'B'
+    elif akhir >= 65:
+        pred = 'C'
+    else:
+        pred = 'D'
+    return akhir, pred
+
+
+@app.route('/penilaian', methods=['GET', 'POST'])
+def penilaian_massal():
+    """Menilai banyak siswa sekaligus dalam satu tabel (sikap & teknis), lalu Simpan Semua."""
+    if not is_staff():
+        flash('Akses ditolak.', 'danger')
+        return redirect(url_for('login'))
+
+    sc, scp = scope_sekolah('s')
+    sumber = request.form if request.method == 'POST' else request.args
+    f_q = (sumber.get('q') or '').strip()
+    f_sekolah = sumber.get('sekolah', type=int)
+    f_status = sumber.get('status') or 'semua'
+
+    conn = get_db_connection()
+    if not conn:
+        flash('Gagal terhubung ke server database.', 'danger')
+        return redirect(url_for('dashboard_pembimbing'))
+    cursor = conn.cursor(dictionary=True)
+    try:
+        sql = """
+            SELECT s.id, s.nisn, s.kelas_jurusan, s.sekolah_id, u.nama, k.nama AS nama_sekolah,
+                   COALESCE(a.total, 0) AS total_hari, COALESCE(a.hadir, 0) AS hadir,
+                   COALESCE(l.acc, 0) AS laporan_acc,
+                   n.id AS nilai_id, n.nilai_sikap, n.nilai_teknis, n.nilai_akhir, n.predikat,
+                   n.catatan_pembimbing
+            FROM siswa s
+            JOIN users u ON s.user_id = u.id
+            LEFT JOIN sekolah k ON s.sekolah_id = k.id
+            LEFT JOIN (SELECT siswa_id, COUNT(*) AS total, SUM(status = 'Hadir') AS hadir
+                       FROM absensi GROUP BY siswa_id) a ON a.siswa_id = s.id
+            LEFT JOIN (SELECT siswa_id, COUNT(*) AS acc FROM laporan_harian
+                       WHERE status_validasi = 'Disetujui' GROUP BY siswa_id) l ON l.siswa_id = s.id
+            LEFT JOIN nilai_pkl n ON n.siswa_id = s.id
+            WHERE COALESCE(u.is_active, 1) <> 0""" + sc
+        params = list(scp)
+        if f_sekolah:
+            sql += " AND s.sekolah_id = %s"
+            params.append(f_sekolah)
+        if f_q:
+            sql += " AND (u.nama LIKE %s OR s.nisn LIKE %s OR s.kelas_jurusan LIKE %s)"
+            params += [f"%{f_q}%"] * 3
+        if f_status == 'belum':
+            sql += " AND n.id IS NULL"
+        elif f_status == 'sudah':
+            sql += " AND n.id IS NOT NULL"
+        sql += " ORDER BY u.nama"
+        cursor.execute(sql, tuple(params))
+        rows = cursor.fetchall()
+
+        for r in rows:
+            total = r['total_hari'] or 0
+            pembagi = total or 1
+            r['nilai_absensi'] = min(100.0, round(float(r['hadir'] or 0) / pembagi * 100, 2))
+            r['nilai_laporan'] = min(100.0, round(float(r['laporan_acc'] or 0) / pembagi * 100, 2))
+
+        if request.method == 'POST':
+            ids = {int(i) for i in request.form.get('ubah_ids', '').split(',') if i.strip().isdigit()}
+            # cari semua siswa dalam scope (bukan hanya yang terfilter) agar aman dari manipulasi id
+            cursor.execute("SELECT s.id FROM siswa s WHERE 1=1" + sc, tuple(scp))
+            diizinkan = {r['id'] for r in cursor.fetchall()}
+            terfilter = {r['id']: r for r in rows}
+            tersimpan, dilewati = 0, 0
+            for sid in ids:
+                r = terfilter.get(sid)
+                if sid not in diizinkan or r is None:
+                    dilewati += 1
+                    continue
+                try:
+                    sikap = int(request.form.get(f'sikap_{sid}', ''))
+                    teknis = int(request.form.get(f'teknis_{sid}', ''))
+                except ValueError:
+                    dilewati += 1
+                    continue
+                if not (0 <= sikap <= 100 and 0 <= teknis <= 100):
+                    dilewati += 1
+                    continue
+                catatan = (request.form.get(f'catatan_{sid}') or '').strip()[:1000]
+                akhir, pred = hitung_nilai_akhir(r['nilai_absensi'], r['nilai_laporan'], sikap, teknis)
+                if r['nilai_id']:
+                    cursor.execute("""
+                        UPDATE nilai_pkl SET nilai_absensi=%s, nilai_laporan=%s, nilai_sikap=%s, nilai_teknis=%s,
+                               nilai_akhir=%s, predikat=%s, catatan_pembimbing=%s, pembimbing_id=%s
+                        WHERE siswa_id=%s
+                    """, (r['nilai_absensi'], r['nilai_laporan'], sikap, teknis, akhir, pred, catatan,
+                          session['user_id'], sid))
+                else:
+                    cursor.execute("""
+                        INSERT INTO nilai_pkl (siswa_id, pembimbing_id, nilai_absensi, nilai_laporan, nilai_sikap,
+                                               nilai_teknis, nilai_akhir, predikat, catatan_pembimbing)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (sid, session['user_id'], r['nilai_absensi'], r['nilai_laporan'], sikap, teknis,
+                          akhir, pred, catatan))
+                tersimpan += 1
+            conn.commit()
+            if tersimpan:
+                flash(f'{tersimpan} siswa berhasil dinilai/diperbarui.' +
+                      (f' {dilewati} baris dilewati (nilai kosong atau di luar 0-100).' if dilewati else ''), 'success')
+            elif ids:
+                flash('Tidak ada nilai yang tersimpan. Isi nilai Sikap dan Teknis (0-100) pada baris yang diubah.', 'warning')
+            else:
+                flash('Tidak ada perubahan untuk disimpan.', 'info')
+            return redirect(url_for('penilaian_massal', q=f_q or None, sekolah=f_sekolah or None,
+                                    status=f_status if f_status != 'semua' else None))
+
+        sekolah_opsi = daftar_sekolah_boleh(cursor)
+    except mysql.connector.Error as e:
+        conn.rollback()
+        flash(f'Terjadi kesalahan database: {e}', 'danger')
+        return redirect(url_for('dashboard_pembimbing'))
+    finally:
+        cursor.close()
+        conn.close()
+
+    return render_template('penilaian.html', rows=rows, sekolah_opsi=sekolah_opsi,
+                           f_q=f_q, f_sekolah=f_sekolah, f_status=f_status)
+
+
 # Tempat PKL yang tercetak di PDF nilai (bisa diganti lewat env NAMA_PERUSAHAAN)
 NAMA_PERUSAHAAN = os.environ.get('NAMA_PERUSAHAAN', 'PT Media Naraya Cipta')
 

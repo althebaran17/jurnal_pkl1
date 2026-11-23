@@ -3640,17 +3640,23 @@ def admin_pembimbing():
                             conn.commit()
                             flash(f'Akun {nama} ({role}) berhasil dibuat.', 'success')
 
-                elif aksi in ('toggle', 'reset', 'ubah_sekolah') and user_id:
+elif aksi in ('hapus', 'reset', 'ubah_sekolah') and user_id:
                     cursor.execute("SELECT id, nama, role, is_active FROM users WHERE id = %s", (user_id,))
                     target = cursor.fetchone()
                     if not target or target['role'] not in ROLE_BOLEH:
                         flash('Akun pembimbing tidak ditemukan.', 'danger')
-                    elif aksi == 'toggle':
-                        baru = 0 if int(target['is_active'] if target['is_active'] is not None else 1) == 1 else 1
-                        cursor.execute("UPDATE users SET is_active = %s WHERE id = %s", (baru, user_id))
-                        conn.commit()
-                        flash(f"Akun {target['nama']} {'dinonaktifkan' if baru == 0 else 'diaktifkan kembali'}.",
-                              'warning' if baru == 0 else 'success')
+                    elif aksi == 'hapus':
+                        # Cek apakah pembimbing masih memiliki siswa bimbingan terpaut
+                        cursor.execute("SELECT COUNT(*) AS jml FROM siswa WHERE pembimbing_pkl_id = %s", (user_id,))
+                        cek_bimbingan = cursor.fetchone()
+                        if cek_bimbingan and cek_bimbingan['jml'] > 0:
+                            flash(f"Pembimbing {target['nama']} tidak dapat dihapus karena masih memiliki {cek_bimbingan['jml']} siswa bimbingan.", 'danger')
+                        else:
+                            cursor.execute("DELETE FROM pembimbing WHERE user_id = %s", (user_id,))
+                            cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+                            conn.commit()
+                            _cache_akun.pop(user_id, None)
+                            flash(f"Akun pembimbing {target['nama']} berhasil dihapus permanen.", 'success')
                     elif aksi == 'reset':
                         pw = request.form.get('password_baru', '')
                         if len(pw) < 6:
@@ -3668,13 +3674,12 @@ def admin_pembimbing():
                             flash('Sekolah tidak valid.', 'danger')
                         else:
                             cursor.execute("UPDATE users SET sekolah_id = %s WHERE id = %s", (sekolah_id, user_id))
-                            # siswa bimbingan dari sekolah lama otomatis dilepas
                             cursor.execute("""
                                 UPDATE siswa SET pembimbing_pkl_id = NULL
                                 WHERE pembimbing_pkl_id = %s AND (sekolah_id IS NULL OR sekolah_id <> %s)
                             """, (user_id, sekolah_id))
                             conn.commit()
-                            flash(f"Sekolah {target['nama']} berhasil diubah. Siswa bimbingan dari sekolah lama dilepas. Berlaku pada login berikutnya.", 'success')
+                            flash(f"Sekolah {target['nama']} berhasil diubah.", 'success')
                 else:
                     flash('Aksi tidak valid.', 'danger')
             except mysql.connector.Error as e:

@@ -1,0 +1,20 @@
+UPDATE E-JURNAL PKL (terbaru)
+Cara pakai: ekstrak zip ini DI ATAS folder proyek (timpa file yang sama).
+
+SEBELUM DEPLOY (Railway > Variables):
+  1. SECRET_KEY        wajib (>=32 karakter). Buat: python -c "import secrets; print(secrets.token_hex(32))"
+  2. ADMIN_SETUP_TOKEN kode pendaftaran Authenticator admin (atau jalankan: flask --app app admin-2fa <username>)
+  3. Cek apakah admin sudah punya Authenticator; bila belum, lakukan langkah 2 dulu.
+  4. Jalankan dulu: flask --app app auto-alpa --dry-run   (lihat Alpa yang akan dicatat)
+
+DATABASE (opsional, disarankan) - cegah presensi ganda, jalankan di MySQL Railway:
+  -- a) cek duplikat
+  SELECT siswa_id, tanggal, COUNT(*) c, GROUP_CONCAT(status) FROM absensi GROUP BY siswa_id, tanggal HAVING c > 1;
+  -- b) bila ada: hapus Alpa yang bentrok dengan Hadir/Izin/Sakit, lalu sisakan 1 baris per hari
+  DELETE a FROM absensi a JOIN absensi b ON a.siswa_id=b.siswa_id AND a.tanggal=b.tanggal AND a.id<>b.id
+   WHERE (a.status='Alpa' AND b.status<>'Alpa') OR (a.status=b.status AND a.id>b.id);
+  -- c) ulangi (a); bila sudah kosong:
+  ALTER TABLE absensi ADD UNIQUE KEY uq_absensi_siswa_tanggal (siswa_id, tanggal);
+
+Opsional: TRUST_PROXY_HOPS (default 1 di Railway).
+Rapikan repo: ganti nama gitignore.txt -> .gitignore, lalu jalankan bersihkan_repo.sh

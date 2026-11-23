@@ -1,4 +1,3 @@
-
 # Python
 __pycache__/
 *.py[cod]
@@ -8,15 +7,28 @@ __pycache__/
 .venv/
 venv/
 
-# Environment variables
+# Rahasia / environment (JANGAN pernah di-commit)
 .env
+.env.*
+*.pem
+*.key
 
 # IDE
 .vscode/
+.idea/
 
-# Uploads (jika berisi file pribadi/user)
+# Data pribadi pengguna (foto profil, bukti, dll.)
 uploads/*
+!uploads/.gitkeep
+static/uploads/
 
-# Temporary files
+# Dump database BERISI DATA (pakai db_jurnal_pkl_schema.sql yang hanya skema)
+db_jurnal_pkl.sql
+db_jurnal_pkl_railway.sql
+*.dump
+*.bak
+
+# Arsip / berkas sampah
+*.zip
 *.log
 .DS_Store

@@ -110,7 +110,8 @@ def dashboard():
         """, (hari_ini, _uid()))
         hari_ini_list = cursor.fetchall()
     except mysql.connector.Error as e:
-        flash(f'Gagal memuat data: {e}', 'danger')
+        print("[ERROR] " + "Gagal memuat data" + ":", e)  # detail hanya di log server
+        flash("Gagal memuat data. Silakan coba lagi.", 'danger')
         total_siswa, laporan_pending, hari_ini_list = 0, 0, []
     finally:
         cursor.close()
@@ -159,7 +160,8 @@ def siswa():
         cursor.execute(sql, tuple(params))
         siswa_list = cursor.fetchall()
     except mysql.connector.Error as e:
-        flash(f'Terjadi kesalahan saat mengambil data: {e}', 'danger')
+        print("[ERROR] " + "Terjadi kesalahan saat mengambil data" + ":", e)  # detail hanya di log server
+        flash("Terjadi kesalahan saat mengambil data. Silakan coba lagi.", 'danger')
         siswa_list = []
     finally:
         cursor.close()
@@ -320,7 +322,8 @@ def absensi():
         cursor.execute(sql, tuple(params))
         absensi_list = cursor.fetchall()
     except mysql.connector.Error as e:
-        flash(f'Terjadi kesalahan saat mengambil data: {e}', 'danger')
+        print("[ERROR] " + "Terjadi kesalahan saat mengambil data" + ":", e)  # detail hanya di log server
+        flash("Terjadi kesalahan saat mengambil data. Silakan coba lagi.", 'danger')
         absensi_list = []
     finally:
         cursor.close()

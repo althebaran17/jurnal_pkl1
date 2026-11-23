@@ -199,7 +199,7 @@
 <body>
 
     <video class="bg-video" autoplay loop muted playsinline>
-        <source src="{{ url_for('static', filename='video/bg-login.mp4') }}" type="video/mp4">
+        <source src="{{ url_for('static', filename='video/bg-login.mp4') }}" type="video/mp4" onerror="this.parentNode.style.display='none'">
     </video>
 
     <div class="bg-overlay"></div>
@@ -227,6 +227,27 @@
           {% endif %}
         {% endwith %}
 
+        {% if tahap_token %}
+        <p style="color:#cbd5e1; font-size:13px; line-height:1.6; margin:0 0 14px;">
+            Akun admin <strong>{{ username }}</strong> belum memakai verifikasi 2 langkah.
+            Untuk mendaftarkan Authenticator, masukkan <strong>Kode Pendaftaran</strong> dari pemilik server.
+        </p>
+        {% if token_belum_diatur %}
+        <p style="color:#fca5a5; font-size:12px; line-height:1.6; margin:0 0 14px;">
+            Kode pendaftaran belum diatur di server. Pemilik server dapat mengisi variabel
+            <code>ADMIN_SETUP_TOKEN</code>, atau menjalankan <code>flask --app app admin-2fa {{ username }}</code>.
+        </p>
+        {% else %}
+        <form action="{{ url_for('login_2fa') }}" method="POST" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label for="kode_setup">Kode Pendaftaran</label>
+                <input type="password" id="kode_setup" name="kode_setup" maxlength="128" required autofocus>
+            </div>
+            <button type="submit" class="btn-submit">Lanjutkan</button>
+        </form>
+        {% endif %}
+        {% else %}
         {% if mode_setup %}
         <p style="color:#cbd5e1; font-size:13px; line-height:1.6; margin:0 0 14px;">
             Akun admin <strong>{{ username }}</strong> belum memakai verifikasi 2 langkah.
@@ -255,6 +276,7 @@
             </div>
             <button type="submit" class="btn-submit">{{ 'Aktifkan & Masuk' if mode_setup else 'Verifikasi & Masuk' }}</button>
         </form>
+        {% endif %}
         <div style="text-align:center; margin-top:14px;">
             <a href="{{ url_for('login') }}" style="color:#94a3b8; font-size:13px;">&larr; Kembali ke login</a>
         </div>

@@ -36,8 +36,20 @@ class Config:
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
 
-if Config.SECRET_KEY.startswith('dev-only') and Config.SESSION_COOKIE_SECURE:
-    warnings.warn('SECRET_KEY belum diatur di environment produksi! Sesi bisa dipalsukan.', RuntimeWarning)
+# Produksi = Railway atau APP_ENV=production. Di sana SECRET_KEY WAJIB diisi (>= 32 karakter);
+# bila tidak, aplikasi sengaja gagal start daripada berjalan dengan kunci bawaan yang bisa ditebak
+# (siapa pun bisa memalsukan cookie sesi, termasuk menjadi admin).
+# Buat kunci:  python -c "import secrets; print(secrets.token_hex(32))"
+_PRODUKSI = bool(os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_PROJECT_ID')
+                 or os.environ.get('APP_ENV', '').lower() == 'production')
+
+if _PRODUKSI and (Config.SECRET_KEY.startswith('dev-only') or len(Config.SECRET_KEY) < 32):
+    raise RuntimeError(
+        'SECRET_KEY wajib diisi di environment produksi (minimal 32 karakter). '
+        'Buat dengan: python -c "import secrets; print(secrets.token_hex(32))" '
+        'lalu isi sebagai variabel SECRET_KEY di Railway.')
+elif Config.SECRET_KEY.startswith('dev-only'):
+    warnings.warn('SECRET_KEY belum diatur: memakai kunci bawaan khusus development.', RuntimeWarning)
 
 
 def get_db_connection():

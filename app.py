@@ -1393,7 +1393,7 @@ def absensi():
                 flash('Presensi selfie berhasil disimpan!', 'success')
                 cursor.close()
                 conn.close()
-                return redirect(url_for('riwayat_absensi'))
+                return redirect(url_for('dashboard_siswa'))
             except Exception as e:
                 conn.rollback()
                 try:
@@ -1430,87 +1430,72 @@ def riwayat_absensi():
     role = session.get('role')
     if role == 'pembimbing_pkl':
         return redirect(url_for('pkl.absensi'))   # modul pkl terpisah
-    if role != 'siswa' and not is_staff():
+    if role == 'siswa':
+        return redirect(url_for('dashboard_siswa'))   # riwayat hanya untuk pembimbing/admin
+    if not is_staff():
         flash('Akses ditolak.', 'danger')
         return redirect(url_for('login'))
 
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
 
-    if role == 'siswa':
-        siswa_id = session.get('siswa_id')
-        cursor.execute("""
-            SELECT
-                a.*,
-                TIME_FORMAT(a.created_at, '%H:%i') AS jam_absen
-            FROM absensi a
-            WHERE a.siswa_id = %s 
-            ORDER BY a.tanggal DESC
-        """, (siswa_id,))
-        
-        absensi_list = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return render_template('riwayat_absensi.html', absensi_list=absensi_list, is_pembimbing=False)
+    filter_tanggal = request.args.get('tanggal', '').strip()
+    filter_status = request.args.get('status', '').strip()
+    filter_nama = request.args.get('nama_siswa', '').strip()
 
-    else:
-        filter_tanggal = request.args.get('tanggal', '').strip()
-        filter_status = request.args.get('status', '').strip()
-        filter_nama = request.args.get('nama_siswa', '').strip()
+    query = """
+        SELECT 
+            a.*, 
+            TIME_FORMAT(a.created_at, '%H:%i') AS jam_absen, 
+            u.nama AS nama_siswa, 
+            s.kelas_jurusan 
+        FROM absensi a
+        JOIN siswa s ON a.siswa_id = s.id
+        JOIN users u ON s.user_id = u.id
+        WHERE 1=1
+    """
+    params = []
+    sc, scp = scope_sekolah('s')
+    query += sc
+    params.extend(scp)
 
-        query = """
-            SELECT 
-                a.*, 
-                TIME_FORMAT(a.created_at, '%H:%i') AS jam_absen, 
-                u.nama AS nama_siswa, 
-                s.kelas_jurusan 
-            FROM absensi a
-            JOIN siswa s ON a.siswa_id = s.id
-            JOIN users u ON s.user_id = u.id
-            WHERE 1=1
-        """
-        params = []
-        sc, scp = scope_sekolah('s')
-        query += sc
-        params.extend(scp)
+    if filter_tanggal:
+        query += " AND a.tanggal = %s"
+        params.append(filter_tanggal)
+    if filter_status:
+        query += " AND a.status = %s"
+        params.append(filter_status)
+    if filter_nama:
+        query += " AND u.nama LIKE %s"
+        params.append(f"%{filter_nama}%")
 
-        if filter_tanggal:
-            query += " AND a.tanggal = %s"
-            params.append(filter_tanggal)
-        if filter_status:
-            query += " AND a.status = %s"
-            params.append(filter_status)
-        if filter_nama:
-            query += " AND u.nama LIKE %s"
-            params.append(f"%{filter_nama}%")
+    query += " ORDER BY a.tanggal DESC, u.nama ASC"
 
-        query += " ORDER BY a.tanggal DESC, u.nama ASC"
+    cursor.execute(query, tuple(params))
+    absensi_list = cursor.fetchall()
 
-        cursor.execute(query, tuple(params))
-        absensi_list = cursor.fetchall()
+    # Opsi daftar siswa + sisa kuota toleransi untuk Modal Absen Manual
+    cursor.execute("""
+        SELECT s.id, u.nama, s.nisn, s.kelas_jurusan,
+               (1 - COUNT(CASE WHEN a.is_manual = 1 THEN 1 END)) AS sisa_toleransi
+        FROM siswa s
+        JOIN users u ON s.user_id = u.id
+        LEFT JOIN absensi a ON s.id = a.siswa_id
+        WHERE 1=1""" + sc + """
+        GROUP BY s.id, u.nama, s.nisn, s.kelas_jurusan
+        ORDER BY u.nama ASC
+    """, tuple(scp))
+    siswa_list = cursor.fetchall()
 
-        # Opsi daftar siswa + sisa kuota toleransi untuk Modal Absen Manual
-        cursor.execute("""
-            SELECT s.id, u.nama, s.nisn, s.kelas_jurusan,
-                   (1 - COUNT(CASE WHEN a.is_manual = 1 THEN 1 END)) AS sisa_toleransi
-            FROM siswa s
-            JOIN users u ON s.user_id = u.id
-            LEFT JOIN absensi a ON s.id = a.siswa_id
-            WHERE 1=1""" + sc + """
-            GROUP BY s.id, u.nama, s.nisn, s.kelas_jurusan
-            ORDER BY u.nama ASC
-        """, tuple(scp))
-        siswa_list = cursor.fetchall()
-
-        cursor.close()
-        conn.close()
-        return render_template('riwayat_absensi.html', 
-                               absensi_list=absensi_list, 
-                               is_pembimbing=True, 
-                               siswa_list=siswa_list,
-                               filter_tanggal=filter_tanggal,
-                               filter_status=filter_status,
-                               filter_nama=filter_nama)
+    cursor.close()
+    conn.close()
+    return render_template('riwayat_absensi.html', 
+                           absensi_list=absensi_list, 
+                           is_pembimbing=True, 
+                           siswa_list=siswa_list,
+                           filter_tanggal=filter_tanggal,
+                           filter_status=filter_status,
+                           filter_nama=filter_nama)
 
 
 
@@ -3613,75 +3598,74 @@ def admin_pembimbing():
         if request.method == 'POST':
             aksi = request.form.get('aksi', '')
             user_id = request.form.get('user_id', type=int)
-            
-            if aksi == 'tambah':
-                username = request.form.get('username', '').strip()
-                nama = request.form.get('nama', '').strip()
-                password = request.form.get('password', '')
-                role = request.form.get('role', '')
-                sekolah_id = request.form.get('sekolah_id', type=int)
-
-                if role not in ROLE_BOLEH or not username or not nama:
-                    flash('Username, nama, dan role wajib diisi dengan benar!', 'danger')
-                elif len(password) < 6:
-                    flash('Password minimal 6 karakter!', 'danger')
-                elif role == 'pembimbing_pkl' and sekolah_id not in sekolah_ids:
-                    flash('Pembimbing PKL wajib dikaitkan dengan satu sekolah!', 'danger')
-                else:
-                    cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
-                    if cursor.fetchone():
-                        flash(f'Username "{username}" sudah dipakai.', 'danger')
-                    else:
-                        cursor.execute("""
-                            INSERT INTO users (username, password, nama, role, sekolah_id)
-                            VALUES (%s, %s, %s, %s, %s)
-                        """, (username, generate_password_hash(password), nama, role,
-                              sekolah_id if role == 'pembimbing_pkl' else None))
-                        conn.commit()
-                        flash(f'Akun {nama} ({role}) berhasil dibuat.', 'success')
-
-            elif aksi in ('hapus', 'reset', 'ubah_sekolah') and user_id:
-                cursor.execute("SELECT id, nama, role, is_active FROM users WHERE id = %s", (user_id,))
-                target = cursor.fetchone()
-                if not target or target['role'] not in ROLE_BOLEH:
-                    flash('Akun pembimbing tidak ditemukan.', 'danger')
-                elif aksi == 'hapus':
-                    cursor.execute("SELECT COUNT(*) AS jml FROM siswa WHERE pembimbing_pkl_id = %s", (user_id,))
-                    cek_bimbingan = cursor.fetchone()
-                    if cek_bimbingan and cek_bimbingan['jml'] > 0:
-                        flash(f"Pembimbing {target['nama']} tidak dapat dihapus karena masih memiliki {cek_bimbingan['jml']} siswa bimbingan.", 'danger')
-                    else:
-                        cursor.execute("DELETE FROM pembimbing WHERE user_id = %s", (user_id,))
-                        cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
-                        conn.commit()
-                        _cache_akun.pop(user_id, None)
-                        flash(f"Akun pembimbing {target['nama']} berhasil dihapus permanen.", 'success')
-                elif aksi == 'reset':
-                    pw = request.form.get('password_baru', '')
-                    if len(pw) < 6:
-                        flash('Password baru minimal 6 karakter!', 'danger')
-                    else:
-                        cursor.execute("UPDATE users SET password = %s WHERE id = %s",
-                                       (generate_password_hash(pw), user_id))
-                        conn.commit()
-                        flash(f"Password {target['nama']} berhasil direset.", 'success')
-                else:  # ubah_sekolah
+            try:
+                if aksi == 'tambah':
+                    username = request.form.get('username', '').strip()
+                    nama = request.form.get('nama', '').strip()
+                    password = request.form.get('password', '')
+                    role = request.form.get('role', '')
                     sekolah_id = request.form.get('sekolah_id', type=int)
-                    if target['role'] != 'pembimbing_pkl':
-                        flash('Hanya Pembimbing PKL yang terikat ke sekolah.', 'danger')
-                    elif sekolah_id not in sekolah_ids:
-                        flash('Sekolah tidak valid.', 'danger')
+
+                    if role not in ROLE_BOLEH or not username or not nama:
+                        flash('Username, nama, dan role wajib diisi dengan benar!', 'danger')
+                    elif len(password) < 6:
+                        flash('Password minimal 6 karakter!', 'danger')
+                    elif role == 'pembimbing_pkl' and sekolah_id not in sekolah_ids:
+                        flash('Pembimbing PKL wajib dikaitkan dengan satu sekolah!', 'danger')
                     else:
-                        cursor.execute("UPDATE users SET sekolah_id = %s WHERE id = %s", (sekolah_id, user_id))
-                        cursor.execute("""
-                            UPDATE siswa SET pembimbing_pkl_id = NULL
-                            WHERE pembimbing_pkl_id = %s AND (sekolah_id IS NULL OR sekolah_id <> %s)
-                        """, (user_id, sekolah_id))
+                        cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+                        if cursor.fetchone():
+                            flash(f'Username "{username}" sudah dipakai.', 'danger')
+                        else:
+                            cursor.execute("""
+                                INSERT INTO users (username, password, nama, role, sekolah_id)
+                                VALUES (%s, %s, %s, %s, %s)
+                            """, (username, generate_password_hash(password), nama, role,
+                                  sekolah_id if role == 'pembimbing_pkl' else None))
+                            conn.commit()
+                            flash(f'Akun {nama} ({role}) berhasil dibuat.', 'success')
+
+                elif aksi in ('toggle', 'reset', 'ubah_sekolah') and user_id:
+                    cursor.execute("SELECT id, nama, role, is_active FROM users WHERE id = %s", (user_id,))
+                    target = cursor.fetchone()
+                    if not target or target['role'] not in ROLE_BOLEH:
+                        flash('Akun pembimbing tidak ditemukan.', 'danger')
+                    elif aksi == 'toggle':
+                        baru = 0 if int(target['is_active'] if target['is_active'] is not None else 1) == 1 else 1
+                        cursor.execute("UPDATE users SET is_active = %s WHERE id = %s", (baru, user_id))
                         conn.commit()
-                        flash(f"Sekolah {target['nama']} berhasil diubah.", 'success')
-            else:
-                flash('Aksi tidak valid.', 'danger')
-                
+                        flash(f"Akun {target['nama']} {'dinonaktifkan' if baru == 0 else 'diaktifkan kembali'}.",
+                              'warning' if baru == 0 else 'success')
+                    elif aksi == 'reset':
+                        pw = request.form.get('password_baru', '')
+                        if len(pw) < 6:
+                            flash('Password baru minimal 6 karakter!', 'danger')
+                        else:
+                            cursor.execute("UPDATE users SET password = %s WHERE id = %s",
+                                           (generate_password_hash(pw), user_id))
+                            conn.commit()
+                            flash(f"Password {target['nama']} berhasil direset.", 'success')
+                    else:  # ubah_sekolah
+                        sekolah_id = request.form.get('sekolah_id', type=int)
+                        if target['role'] != 'pembimbing_pkl':
+                            flash('Hanya Pembimbing PKL yang terikat ke sekolah.', 'danger')
+                        elif sekolah_id not in sekolah_ids:
+                            flash('Sekolah tidak valid.', 'danger')
+                        else:
+                            cursor.execute("UPDATE users SET sekolah_id = %s WHERE id = %s", (sekolah_id, user_id))
+                            # siswa bimbingan dari sekolah lama otomatis dilepas
+                            cursor.execute("""
+                                UPDATE siswa SET pembimbing_pkl_id = NULL
+                                WHERE pembimbing_pkl_id = %s AND (sekolah_id IS NULL OR sekolah_id <> %s)
+                            """, (user_id, sekolah_id))
+                            conn.commit()
+                            flash(f"Sekolah {target['nama']} berhasil diubah. Siswa bimbingan dari sekolah lama dilepas. Berlaku pada login berikutnya.", 'success')
+                else:
+                    flash('Aksi tidak valid.', 'danger')
+            except mysql.connector.Error as e:
+                conn.rollback()
+                print("[ERROR] " + "Terjadi kesalahan database" + ":", e)  # detail hanya di log server
+                flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
             return redirect(url_for('admin_pembimbing'))
 
         cursor.execute("""
@@ -3693,15 +3677,9 @@ def admin_pembimbing():
             ORDER BY u.role, k.nama, u.nama
         """)
         pembimbing_list = cursor.fetchall()
-    except mysql.connector.Error as e:
-        conn.rollback()
-        print("[ERROR] Terjadi kesalahan database:", e)
-        flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
-        pembimbing_list, sekolah_opsi = [], []
     finally:
         cursor.close()
         conn.close()
-        
     return render_template('admin_pembimbing.html', pembimbing_list=pembimbing_list, sekolah_opsi=sekolah_opsi)
 
 @app.route('/admin/pembimbing/<int:user_id>/bimbingan', methods=['GET', 'POST'])

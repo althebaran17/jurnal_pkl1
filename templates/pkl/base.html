@@ -206,6 +206,14 @@
                                 </div>
                             </a>
                         </li>
+                        <li>
+                            <a href="{{ url_for('pkl.profil') }}" class="{{ 'active' if active == 'profil' else '' }}">
+                                <div class="menu-link-content">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                    Profil Saya
+                                </div>
+                            </a>
+                        </li>
                     </ul>
                 </div>
             </div>
@@ -216,12 +224,12 @@
         <div class="navbar">
             <div class="navbar-title">{% block navbar_title %}Pemantauan Siswa Bimbingan{% endblock %}</div>
             <div class="navbar-right" style="display: flex; align-items: center; gap: 12px;">
-                <div style="display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); font-weight: 600; color: var(--text);">
+                <a href="{{ url_for('pkl.profil') }}" title="Profil Saya" style="display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); font-weight: 600; color: var(--text); text-decoration: none;">
                     <div style="width: 32px; height: 32px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px;">
                         {{ (session.get('nama') or '?')[0]|upper }}
                     </div>
                     <span>{{ session.get('nama') }}</span>
-                </div>
+                </a>
                 <button type="button" class="btn-logout-nav" onclick="openLogoutModal()">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>

@@ -1,0 +1,60 @@
+{% extends 'pkl/base.html' %}
+{% set active_menu = 'profil' %}
+{% block title %}Profil Saya{% endblock %}
+{% block navbar_title %}Profil Pembimbing PKL{% endblock %}
+{% block content %}
+<style>
+    .pkl-input { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm);
+                 background:var(--surface); color:var(--text); font-size:var(--text-base); box-sizing:border-box; }
+    .pkl-input:focus { outline:none; border-color:var(--primary); }
+    @media (max-width:768px) { .pkl-input { font-size:16px; } }
+</style>
+<div class="adm-panel">
+    <div class="hd">Data Akun</div>
+    <div class="bd">
+        <dl class="pkl-grid" style="margin:0;">
+            <div><dt>Nama</dt><dd>{{ akun.nama }}</dd></div>
+            <div><dt>Username</dt><dd>{{ akun.username }}</dd></div>
+            <div><dt>Peran</dt><dd>Pembimbing PKL (Pemantau)</dd></div>
+            <div><dt>Siswa Bimbingan</dt><dd>{{ total_siswa }} siswa</dd></div>
+        </dl>
+    </div>
+</div>
+
+<div class="adm-panel">
+    <div class="hd">Sekolah Asal</div>
+    <div class="bd">
+        {% if sekolah %}
+        <dl class="pkl-grid" style="margin:0;">
+            <div><dt>Nama Sekolah</dt><dd>{{ sekolah.nama }}</dd></div>
+            <div><dt>NPSN</dt><dd>{{ sekolah.npsn or '-' }}</dd></div>
+            <div><dt>Alamat</dt><dd>{{ sekolah.alamat or '-' }}</dd></div>
+        </dl>
+        {% else %}
+        <p style="margin:0; color: var(--text-secondary);">Akun Anda belum dikaitkan dengan sekolah. Hubungi Admin.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="adm-panel">
+    <div class="hd">Ganti Password</div>
+    <div class="bd">
+        <form method="POST" action="{{ url_for('pkl.profil') }}" style="display:grid; gap:14px; max-width:420px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="pkl-filter">
+                <label for="password_lama">Password Lama</label>
+                <input type="password" id="password_lama" name="password_lama" class="pkl-input" required autocomplete="current-password">
+            </div>
+            <div class="pkl-filter">
+                <label for="password_baru">Password Baru (min. 8 karakter)</label>
+                <input type="password" id="password_baru" name="password_baru" class="pkl-input" required minlength="8" autocomplete="new-password">
+            </div>
+            <div class="pkl-filter">
+                <label for="konfirmasi_password">Konfirmasi Password Baru</label>
+                <input type="password" id="konfirmasi_password" name="konfirmasi_password" class="pkl-input" required minlength="8" autocomplete="new-password">
+            </div>
+            <div><button type="submit" class="adm-btn primary">Simpan Password</button></div>
+        </form>
+    </div>
+</div>
+{% endblock %}

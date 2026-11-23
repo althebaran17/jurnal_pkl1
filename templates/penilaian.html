@@ -41,75 +41,11 @@
         box-shadow: var(--focus-ring);
     }
 
-    .btn-search-action {
-        background-color: var(--primary);
-        color: #ffffff;
-        padding: 10px 18px;
-        border-radius: var(--radius-sm);
-        font-weight: 600;
-        font-size: var(--text-sm);
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        transition: var(--transition);
-        border: 1px solid transparent;
-        cursor: pointer;
-        white-space: nowrap;
-    }
-    .btn-search-action:hover {
-        background-color: var(--primary-hover);
-    }
-    .btn-reset-action {
-        background-color: var(--surface);
-        color: var(--text-secondary);
-        padding: 10px 18px;
-        border-radius: var(--radius-sm);
-        font-weight: 600;
-        font-size: var(--text-sm);
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid var(--border);
-        transition: var(--transition);
-        white-space: nowrap;
-    }
-    .btn-reset-action:hover {
-        background-color: var(--bg-app);
-        color: var(--text);
-        border-color: var(--border-strong);
-    }
+    /* =========================================
+       STYLING TOMBOL AKSI TABEL (AGAR TIDAK POLOS)
+       ========================================= */
 
-    .btn-table-action {
-        padding: 6px 12px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        border-radius: var(--radius-sm);
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        transition: var(--transition);
-        box-shadow: var(--shadow-xs);
-        border: 1px solid transparent;
-        cursor: pointer;
-        color: #ffffff;
-        white-space: nowrap;
-    }
-    .btn-table-action:hover {
-        transform: translateY(-1px);
-        box-shadow: var(--shadow-sm);
-        opacity: 0.92;
-    }
-    
     /* Varian warna tombol tabel */
-    .btn-action-detail { background-color: var(--primary); }
-    .btn-action-edit { background-color: #2563eb; }
-    .btn-action-nilai { background-color: #7c3aed; }
-    .btn-action-hapus { background-color: var(--danger); border: none; }
-
 
     @media (max-width: 992px) {
         .search-form-grid {
@@ -139,14 +75,6 @@
     .catatan-row { display:none; } .catatan-row.open { display: table-row; }
     .catatan-row textarea { width:100%; min-height:70px; padding:8px 10px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:14px; background:var(--surface); color:var(--text); }
     .save-bar { position: sticky; bottom: 0; display:flex; gap:12px; align-items:center; justify-content:space-between; padding:12px 16px; margin-top:14px; background: var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:0 -4px 16px rgba(0,0,0,.06); }
-
-
-    .btn-mini { padding:5px 10px; font-size:12px; font-weight:600; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer; text-decoration:none; display:inline-block; }
-    .catatan-row { display:none; } .catatan-row.open { display: table-row; }
-    .catatan-row textarea { width:100%; min-height:70px; padding:8px 10px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:14px; background:var(--surface); color:var(--text); }
-    .save-bar { position: sticky; bottom: 0; display:flex; gap:12px; align-items:center; justify-content:space-between; padding:12px 16px; margin-top:14px; background: var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:0 -4px 16px rgba(0,0,0,.06); }
-    .btn-save-all { padding:10px 20px; background: var(--primary); color:#fff; border:none; border-radius:10px; font-weight:600; cursor:pointer; }
-    .btn-save-all:disabled { opacity:.5; cursor:not-allowed; }
 
 </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
@@ -278,11 +206,7 @@
             {% with messages = get_flashed_messages(with_categories=true) %}
               {% if messages %}
                 {% for category, message in messages %}
-<<<<<<< HEAD
                   <div class="alert alert-{{ category }}" role="alert">{{ message }}</div>
-=======
-                  <div class="alert alert-{{ category }}">{{ message }}</div>
->>>>>>> ed59f3ac39a54273bd9e596202290e14fb591bbe
                 {% endfor %}
               {% endif %}
             {% endwith %}

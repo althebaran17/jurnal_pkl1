@@ -287,9 +287,6 @@
 
                     {% if nilai %}
                     <a href="{{ url_for('nilai_pkl_pdf', siswa_id=siswa.id) }}" class="btn-action-success" style="display:block; text-align:center; margin-bottom:12px;">Unduh PDF Nilai Akhir</a>
-
-                    <a href="{{ url_for('nilai_pkl_pdf', siswa_id=siswa.id) }}" class="btn-action-custom" style="display:block;text-align:center;margin-bottom:12px;background-color:#16a34a;color:#fff;border:none;">Unduh PDF Nilai Akhir</a>
-
                     {% endif %}
                     <div class="btn-group">
                         <a href="{{ url_for('daftar_siswa') }}" class="btn-action-secondary" style="flex: 1;">Batal</a>

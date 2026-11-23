@@ -3613,79 +3613,75 @@ def admin_pembimbing():
         if request.method == 'POST':
             aksi = request.form.get('aksi', '')
             user_id = request.form.get('user_id', type=int)
-            try:
-                if aksi == 'tambah':
-                    username = request.form.get('username', '').strip()
-                    nama = request.form.get('nama', '').strip()
-                    password = request.form.get('password', '')
-                    role = request.form.get('role', '')
-                    sekolah_id = request.form.get('sekolah_id', type=int)
+            
+            if aksi == 'tambah':
+                username = request.form.get('username', '').strip()
+                nama = request.form.get('nama', '').strip()
+                password = request.form.get('password', '')
+                role = request.form.get('role', '')
+                sekolah_id = request.form.get('sekolah_id', type=int)
 
-                    if role not in ROLE_BOLEH or not username or not nama:
-                        flash('Username, nama, dan role wajib diisi dengan benar!', 'danger')
-                    elif len(password) < 6:
-                        flash('Password minimal 6 karakter!', 'danger')
-                    elif role == 'pembimbing_pkl' and sekolah_id not in sekolah_ids:
-                        flash('Pembimbing PKL wajib dikaitkan dengan satu sekolah!', 'danger')
-                    else:
-                        cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
-                        if cursor.fetchone():
-                            flash(f'Username "{username}" sudah dipakai.', 'danger')
-                        else:
-                            cursor.execute("""
-                                INSERT INTO users (username, password, nama, role, sekolah_id)
-                                VALUES (%s, %s, %s, %s, %s)
-                            """, (username, generate_password_hash(password), nama, role,
-                                  sekolah_id if role == 'pembimbing_pkl' else None))
-                            conn.commit()
-                            flash(f'Akun {nama} ({role}) berhasil dibuat.', 'success')
-
-elif aksi in ('hapus', 'reset', 'ubah_sekolah') and user_id:
-                    cursor.execute("SELECT id, nama, role, is_active FROM users WHERE id = %s", (user_id,))
-                    target = cursor.fetchone()
-                    if not target or target['role'] not in ROLE_BOLEH:
-                        flash('Akun pembimbing tidak ditemukan.', 'danger')
-                    elif aksi == 'hapus':
-                        # Cek apakah pembimbing masih memiliki siswa bimbingan terpaut
-                        cursor.execute("SELECT COUNT(*) AS jml FROM siswa WHERE pembimbing_pkl_id = %s", (user_id,))
-                        cek_bimbingan = cursor.fetchone()
-                        if cek_bimbingan and cek_bimbingan['jml'] > 0:
-                            flash(f"Pembimbing {target['nama']} tidak dapat dihapus karena masih memiliki {cek_bimbingan['jml']} siswa bimbingan.", 'danger')
-                        else:
-                            cursor.execute("DELETE FROM pembimbing WHERE user_id = %s", (user_id,))
-                            cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
-                            conn.commit()
-                            _cache_akun.pop(user_id, None)
-                            flash(f"Akun pembimbing {target['nama']} berhasil dihapus permanen.", 'success')
-                    elif aksi == 'reset':
-                        pw = request.form.get('password_baru', '')
-                        if len(pw) < 6:
-                            flash('Password baru minimal 6 karakter!', 'danger')
-                        else:
-                            cursor.execute("UPDATE users SET password = %s WHERE id = %s",
-                                           (generate_password_hash(pw), user_id))
-                            conn.commit()
-                            flash(f"Password {target['nama']} berhasil direset.", 'success')
-                    else:  # ubah_sekolah
-                        sekolah_id = request.form.get('sekolah_id', type=int)
-                        if target['role'] != 'pembimbing_pkl':
-                            flash('Hanya Pembimbing PKL yang terikat ke sekolah.', 'danger')
-                        elif sekolah_id not in sekolah_ids:
-                            flash('Sekolah tidak valid.', 'danger')
-                        else:
-                            cursor.execute("UPDATE users SET sekolah_id = %s WHERE id = %s", (sekolah_id, user_id))
-                            cursor.execute("""
-                                UPDATE siswa SET pembimbing_pkl_id = NULL
-                                WHERE pembimbing_pkl_id = %s AND (sekolah_id IS NULL OR sekolah_id <> %s)
-                            """, (user_id, sekolah_id))
-                            conn.commit()
-                            flash(f"Sekolah {target['nama']} berhasil diubah.", 'success')
+                if role not in ROLE_BOLEH or not username or not nama:
+                    flash('Username, nama, dan role wajib diisi dengan benar!', 'danger')
+                elif len(password) < 6:
+                    flash('Password minimal 6 karakter!', 'danger')
+                elif role == 'pembimbing_pkl' and sekolah_id not in sekolah_ids:
+                    flash('Pembimbing PKL wajib dikaitkan dengan satu sekolah!', 'danger')
                 else:
-                    flash('Aksi tidak valid.', 'danger')
-            except mysql.connector.Error as e:
-                conn.rollback()
-                print("[ERROR] " + "Terjadi kesalahan database" + ":", e)  # detail hanya di log server
-                flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
+                    cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+                    if cursor.fetchone():
+                        flash(f'Username "{username}" sudah dipakai.', 'danger')
+                    else:
+                        cursor.execute("""
+                            INSERT INTO users (username, password, nama, role, sekolah_id)
+                            VALUES (%s, %s, %s, %s, %s)
+                        """, (username, generate_password_hash(password), nama, role,
+                              sekolah_id if role == 'pembimbing_pkl' else None))
+                        conn.commit()
+                        flash(f'Akun {nama} ({role}) berhasil dibuat.', 'success')
+
+            elif aksi in ('hapus', 'reset', 'ubah_sekolah') and user_id:
+                cursor.execute("SELECT id, nama, role, is_active FROM users WHERE id = %s", (user_id,))
+                target = cursor.fetchone()
+                if not target or target['role'] not in ROLE_BOLEH:
+                    flash('Akun pembimbing tidak ditemukan.', 'danger')
+                elif aksi == 'hapus':
+                    cursor.execute("SELECT COUNT(*) AS jml FROM siswa WHERE pembimbing_pkl_id = %s", (user_id,))
+                    cek_bimbingan = cursor.fetchone()
+                    if cek_bimbingan and cek_bimbingan['jml'] > 0:
+                        flash(f"Pembimbing {target['nama']} tidak dapat dihapus karena masih memiliki {cek_bimbingan['jml']} siswa bimbingan.", 'danger')
+                    else:
+                        cursor.execute("DELETE FROM pembimbing WHERE user_id = %s", (user_id,))
+                        cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+                        conn.commit()
+                        _cache_akun.pop(user_id, None)
+                        flash(f"Akun pembimbing {target['nama']} berhasil dihapus permanen.", 'success')
+                elif aksi == 'reset':
+                    pw = request.form.get('password_baru', '')
+                    if len(pw) < 6:
+                        flash('Password baru minimal 6 karakter!', 'danger')
+                    else:
+                        cursor.execute("UPDATE users SET password = %s WHERE id = %s",
+                                       (generate_password_hash(pw), user_id))
+                        conn.commit()
+                        flash(f"Password {target['nama']} berhasil direset.", 'success')
+                else:  # ubah_sekolah
+                    sekolah_id = request.form.get('sekolah_id', type=int)
+                    if target['role'] != 'pembimbing_pkl':
+                        flash('Hanya Pembimbing PKL yang terikat ke sekolah.', 'danger')
+                    elif sekolah_id not in sekolah_ids:
+                        flash('Sekolah tidak valid.', 'danger')
+                    else:
+                        cursor.execute("UPDATE users SET sekolah_id = %s WHERE id = %s", (sekolah_id, user_id))
+                        cursor.execute("""
+                            UPDATE siswa SET pembimbing_pkl_id = NULL
+                            WHERE pembimbing_pkl_id = %s AND (sekolah_id IS NULL OR sekolah_id <> %s)
+                        """, (user_id, sekolah_id))
+                        conn.commit()
+                        flash(f"Sekolah {target['nama']} berhasil diubah.", 'success')
+            else:
+                flash('Aksi tidak valid.', 'danger')
+                
             return redirect(url_for('admin_pembimbing'))
 
         cursor.execute("""
@@ -3697,9 +3693,15 @@ elif aksi in ('hapus', 'reset', 'ubah_sekolah') and user_id:
             ORDER BY u.role, k.nama, u.nama
         """)
         pembimbing_list = cursor.fetchall()
+    except mysql.connector.Error as e:
+        conn.rollback()
+        print("[ERROR] Terjadi kesalahan database:", e)
+        flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
+        pembimbing_list, sekolah_opsi = [], []
     finally:
         cursor.close()
         conn.close()
+        
     return render_template('admin_pembimbing.html', pembimbing_list=pembimbing_list, sekolah_opsi=sekolah_opsi)
 
 @app.route('/admin/pembimbing/<int:user_id>/bimbingan', methods=['GET', 'POST'])

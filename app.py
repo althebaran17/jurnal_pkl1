@@ -3685,9 +3685,16 @@ def admin_libur():
                         flash(f'{ditambah} hari libur ditambahkan. {dihapus_alpa} Alpa otomatis pada tanggal tersebut dibersihkan.', 'success')
                 elif aksi == 'hapus':
                     libur_id = request.form.get('libur_id', type=int)
-                    cursor.execute("DELETE FROM hari_libur WHERE id = %s", (libur_id,))
-                    conn.commit()
-                    flash('Hari libur dihapus. Hari itu kembali dihitung sebagai hari PKL biasa.', 'success')
+                    if not libur_id:
+                        flash('Data hari libur tidak valid.', 'danger')
+                    else:
+                        cursor.execute("DELETE FROM hari_libur WHERE id = %s", (libur_id,))
+                        terhapus = cursor.rowcount
+                        conn.commit()
+                        if terhapus:
+                            flash('Hari libur dihapus. Hari itu kembali dihitung sebagai hari PKL biasa.', 'success')
+                        else:
+                            flash('Hari libur tidak ditemukan (mungkin sudah dihapus).', 'warning')
                 else:
                     flash('Aksi tidak valid.', 'danger')
             except mysql.connector.Error as e:
@@ -3738,8 +3745,8 @@ def admin_pembimbing():
 
                     if role not in ROLE_BOLEH or not username or not nama:
                         flash('Username, nama, dan role wajib diisi dengan benar!', 'danger')
-                    elif len(password) < 6:
-                        flash('Password minimal 6 karakter!', 'danger')
+                    elif len(password) < 8:
+                        flash('Password minimal 8 karakter!', 'danger')
                     elif role == 'pembimbing_pkl' and sekolah_id not in sekolah_ids:
                         flash('Pembimbing PKL wajib dikaitkan dengan satu sekolah!', 'danger')
                     else:
@@ -3768,8 +3775,8 @@ def admin_pembimbing():
                               'warning' if baru == 0 else 'success')
                     elif aksi == 'reset':
                         pw = request.form.get('password_baru', '')
-                        if len(pw) < 6:
-                            flash('Password baru minimal 6 karakter!', 'danger')
+                        if len(pw) < 8:
+                            flash('Password baru minimal 8 karakter!', 'danger')
                         else:
                             cursor.execute("UPDATE users SET password = %s WHERE id = %s",
                                            (generate_password_hash(pw), user_id))
@@ -3873,7 +3880,7 @@ def admin_bimbingan(user_id):
     return render_template('admin_bimbingan.html', pembimbing=pembimbing, siswa_list=siswa_list)
 
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
 def logout():
     session.clear()
     flash('Anda telah keluar dari sistem.', 'info')

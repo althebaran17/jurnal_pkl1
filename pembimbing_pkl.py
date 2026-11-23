@@ -279,6 +279,10 @@ def siswa_detail(siswa_id):
             FROM laporan_harian WHERE siswa_id = %s ORDER BY tanggal DESC LIMIT 10
         """, (siswa_id,))
         laporan_terbaru = cursor.fetchall()
+    except mysql.connector.Error as e:
+        print("[ERROR] " + "Gagal memuat detail siswa" + ":", e)  # detail hanya di log server
+        flash("Gagal memuat detail siswa. Silakan coba lagi.", 'danger')
+        return redirect(url_for('pkl.siswa'))
     finally:
         cursor.close()
         conn.close()
@@ -322,6 +326,10 @@ def laporan():
             WHERE s.pembimbing_pkl_id = %s ORDER BY u.nama ASC
         """, (_uid(),))
         dft_siswa = cursor.fetchall()
+    except mysql.connector.Error as e:
+        print("[ERROR] " + "Terjadi kesalahan saat mengambil data" + ":", e)  # detail hanya di log server
+        flash("Terjadi kesalahan saat mengambil data. Silakan coba lagi.", 'danger')
+        laporan_list, dft_siswa = [], []
     finally:
         cursor.close()
         conn.close()
@@ -345,6 +353,10 @@ def laporan_detail(laporan_id):
             WHERE l.id = %s AND s.pembimbing_pkl_id = %s
         """, (laporan_id, _uid()))
         laporan_row = cursor.fetchone()
+    except mysql.connector.Error as e:
+        print("[ERROR] " + "Gagal memuat laporan" + ":", e)  # detail hanya di log server
+        flash("Gagal memuat laporan. Silakan coba lagi.", 'danger')
+        return redirect(url_for('pkl.laporan'))
     finally:
         cursor.close()
         conn.close()

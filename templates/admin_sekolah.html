@@ -140,19 +140,8 @@
             </div>
             <div class="sidebar-nav">
                 {% include '_sidebar_admin.html' %}
+                {% include '_sidebar_staff.html' %}
                 {% include '_sidebar_penilaian.html' %}
-
-                <div class="nav-group">
-                    <span class="nav-label">Pantau Data</span>
-                    <ul class="sidebar-menu">
-                        <li><a href="{{ url_for('dashboard_pembimbing') }}"><div class="menu-link-content">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
-                            Monitoring Semua Siswa</div></a></li>
-                        <li><a href="{{ url_for('daftar_siswa') }}"><div class="menu-link-content">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-                            Daftar Siswa</div></a></li>
-                    </ul>
-                </div>
             </div>
         </div>
     </div>
@@ -260,7 +249,10 @@
             <div class="modal-desc-logout">Apakah Anda yakin ingin keluar dari aplikasi E-Jurnal PKL?</div>
             <div class="modal-actions-logout">
                 <button type="button" class="btn-modal btn-modal-cancel" onclick="closeLogoutModal()">Batal</button>
-                <a href="{{ url_for('logout') }}" class="btn-modal btn-modal-confirm">Ya, Keluar</a>
+                <form method="post" action="{{ url_for('logout') }}" style="display:contents">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn-modal btn-modal-confirm">Ya, Keluar</button>
+                </form>
             </div>
         </div>
     </div>

@@ -30,6 +30,17 @@ Aturan (sama dengan aturan lama, hanya dibuat massal)
 
 Penyisipan memakai INSERT ... WHERE NOT EXISTS sehingga aman bila beberapa
 proses/worker berjalan bersamaan.
+
+Penanda "sudah diproses" (perbaikan bug: data absensi dihapus -> Alpa muncul lagi)
+---------------------------------------------------------------------------------
+Dulu setiap penyapuan menghitung ulang dari tgl_mulai_pkl, sehingga baris absensi
+yang sengaja dihapus dianggap "belum tercatat" dan diisi Alpa lagi. Sekarang tiap
+siswa punya penanda `diproses_sampai` (tabel auto_alpa_state): hari yang sudah
+pernah dievaluasi TIDAK dievaluasi lagi, jadi penghapusan data tidak memicu Alpa
+massal. Saat tabel penanda pertama kali dibuat, semua siswa yang sudah ada langsung
+ditandai "sudah diproses sampai kemarin/hari ini" tanpa mengisi Alpa apa pun.
+Bila perlu menghitung ulang (hari libur dihapus / pengajuan ditolak), panggil
+`mundurkan_penanda(...)`.
 """
 import threading
 import time as _time
@@ -91,7 +102,78 @@ def _hari_awal(s, hari_ini, susulkan):
         awal = hari_ini
     if hari_pertama:
         awal = max(awal, hari_pertama)
+    # Hari yang sudah pernah diproses tidak dihitung ulang (data yang dihapus tidak jadi Alpa lagi).
+    sudah = _ke_date(s.get('diproses_sampai'))
+    if sudah:
+        awal = max(awal, sudah + timedelta(days=1))
     return awal
+
+
+def _hari_terakhir(sekarang):
+    return sekarang.date() if sekarang.time() >= JAM_BATAS_ALPA else sekarang.date() - timedelta(days=1)
+
+
+def _siapkan_tabel_penanda(cursor, sekarang):
+    """Buat tabel penanda bila belum ada. Mengembalikan True bila baru dibuat saat ini.
+
+    Memakai GET_LOCK supaya bila beberapa worker gunicorn start bersamaan, worker lain
+    menunggu sampai tabel DAN penanda awal selesai dibuat (tidak ada celah backfill).
+    """
+    cursor.execute("SELECT GET_LOCK('auto_alpa_init', 30) AS ok")
+    cursor.fetchall()
+    try:
+        cursor.execute("""
+            SELECT COUNT(*) AS n FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name = 'auto_alpa_state'
+        """)
+        if (cursor.fetchone() or {}).get('n', 0) > 0:
+            return False
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS auto_alpa_state (
+                siswa_id INT NOT NULL PRIMARY KEY,
+                diproses_sampai DATE NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """)
+        # Bootstrap: siswa yang sudah ada dianggap sudah diproses sampai hari terakhir,
+        # supaya data lama/yang baru dihapus tidak diisi Alpa massal.
+        cursor.execute(
+            "INSERT IGNORE INTO auto_alpa_state (siswa_id, diproses_sampai) SELECT id, %s FROM siswa",
+            (_hari_terakhir(sekarang).isoformat(),))
+        return True
+    finally:
+        cursor.execute("SELECT RELEASE_LOCK('auto_alpa_init')")
+        cursor.fetchall()
+
+
+def mundurkan_penanda(siswa_id=None, sekolah_id=None, tanggal=None):
+    """Izinkan penyapuan menghitung ulang mulai `tanggal` (mis. libur dihapus, pengajuan ditolak)."""
+    tanggal = _ke_date(tanggal)
+    if tanggal is None:
+        return 0
+    conn = get_db_connection()
+    if not conn:
+        return 0
+    cursor = conn.cursor()
+    try:
+        sql = ("UPDATE auto_alpa_state st JOIN siswa s ON s.id = st.siswa_id "
+               "SET st.diproses_sampai = LEAST(st.diproses_sampai, %s) WHERE 1=1")
+        params = [(tanggal - timedelta(days=1)).isoformat()]
+        if siswa_id is not None:
+            sql += " AND s.id = %s"
+            params.append(siswa_id)
+        if sekolah_id is not None:
+            sql += " AND s.sekolah_id = %s"
+            params.append(sekolah_id)
+        cursor.execute(sql, tuple(params))
+        n = cursor.rowcount
+        conn.commit()
+        return n
+    except Exception as e:
+        print(f"[AUTO ALPA] mundurkan_penanda gagal: {e}")
+        return 0
+    finally:
+        cursor.close()
+        conn.close()
 
 
 def hitung_alpa_tertunda(siswa_rows, absensi_ada, pengajuan_bebas, pengajuan_terlambat,
@@ -144,10 +226,22 @@ def jalankan_auto_alpa(siswa_id=None, sekarang=None, susulkan=SUSULKAN_HARI_LAMP
         return 0
     cursor = conn.cursor(dictionary=True)
     try:
+        if not dry_run:
+            if _siapkan_tabel_penanda(cursor, sekarang):
+                conn.commit()
+        else:
+            cursor.execute("SELECT COUNT(*) AS n FROM information_schema.tables "
+                           "WHERE table_schema = DATABASE() AND table_name = 'auto_alpa_state'")
+            if not (cursor.fetchone() or {}).get('n'):
+                print("[DRY-RUN] Tabel penanda belum ada: saat dijalankan sungguhan, semua siswa "
+                      "ditandai 'sudah diproses' tanpa mengisi Alpa.")
+                return 0
         sql = """
-            SELECT s.id, s.sekolah_id, s.tgl_mulai_pkl, s.tgl_selesai_pkl, u.created_at AS dibuat
+            SELECT s.id, s.sekolah_id, s.tgl_mulai_pkl, s.tgl_selesai_pkl, u.created_at AS dibuat,
+                   st.diproses_sampai
             FROM siswa s
             JOIN users u ON s.user_id = u.id
+            LEFT JOIN auto_alpa_state st ON st.siswa_id = s.id
             WHERE COALESCE(u.is_active, 1) <> 0
         """
         params = []
@@ -223,6 +317,13 @@ def jalankan_auto_alpa(siswa_id=None, sekarang=None, susulkan=SUSULKAN_HARI_LAMP
                 baru += max(cursor.rowcount, 0)
             except Exception as e:
                 print(f"[ERROR AUTO ALPA] siswa_id={sid} tanggal={tgl}: {e}")
+        # Tandai semua siswa yang dievaluasi: hari s.d. hari_terakhir sudah diproses.
+        hari_terakhir = _hari_terakhir(sekarang).isoformat()
+        for s in siswa_rows:
+            cursor.execute("""
+                INSERT INTO auto_alpa_state (siswa_id, diproses_sampai) VALUES (%s, %s)
+                ON DUPLICATE KEY UPDATE diproses_sampai = GREATEST(diproses_sampai, VALUES(diproses_sampai))
+            """, (s['id'], hari_terakhir))
         conn.commit()
         return baru
     except Exception as e:  # jangan sampai thread/permintaan web ikut mati

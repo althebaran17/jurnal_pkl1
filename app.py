@@ -35,7 +35,7 @@ from werkzeug.utils import secure_filename
 
 from config import Config, get_db_connection
 from waktu import WIB, now_wib, sekarang_wib, today_wib
-from auto_alpa import jalankan_auto_alpa, pastikan_penjadwal_jalan
+from auto_alpa import jalankan_auto_alpa, pastikan_penjadwal_jalan, mundurkan_penanda
 from keamanan_login import (
     catat_gagal, format_sisa, kunci_2fa, kunci_ip, kunci_username, reset_gagal, sisa_kunci,
 )
@@ -2400,6 +2400,8 @@ def proses_pengajuan(id, aksi):
                 """, (p['siswa_id'], p['tanggal'], p['jenis'], f"{p['jenis']}: {p['alasan']}", p.get('bukti_file')))
 
             conn.commit()
+            if aksi == 'Ditolak':
+                mundurkan_penanda(siswa_id=p['siswa_id'], tanggal=p['tanggal'])
             
             if p['jenis'] == 'Terlambat' and aksi == 'Disetujui' and _ke_tanggal(p['tanggal']) == today_wib() and presensi_ditutup():
                 flash("Pengajuan Terlambat di ACC, tetapi sudah lewat pukul 15:00 WIB sehingga siswa tidak bisa lagi presensi selfie hari ini. Gunakan Absen Manual bila perlu mencatat kehadirannya.", 'warning')
@@ -2701,6 +2703,10 @@ def hapus_siswa(siswa_id):
             cursor.execute("DELETE FROM laporan_harian WHERE siswa_id = %s", (siswa_id,))
             cursor.execute("DELETE FROM pengajuan_absensi WHERE siswa_id = %s", (siswa_id,))
             cursor.execute("DELETE FROM nilai_pkl WHERE siswa_id = %s", (siswa_id,))
+            try:  # penanda auto-alpa milik siswa ini (tabel mungkin belum ada)
+                cursor.execute("DELETE FROM auto_alpa_state WHERE siswa_id = %s", (siswa_id,))
+            except mysql.connector.Error:
+                pass
             
             # 2. Hapus data dari tabel siswa
             cursor.execute("DELETE FROM siswa WHERE id = %s", (siswa_id,))
@@ -3688,9 +3694,14 @@ def admin_libur():
                     if not libur_id:
                         flash('Data hari libur tidak valid.', 'danger')
                     else:
+                        cursor.execute("SELECT tanggal, sekolah_id FROM hari_libur WHERE id = %s", (libur_id,))
+                        libur_lama = cursor.fetchone()
                         cursor.execute("DELETE FROM hari_libur WHERE id = %s", (libur_id,))
                         terhapus = cursor.rowcount
                         conn.commit()
+                        if terhapus and libur_lama:
+                            # hari itu kembali dihitung -> izinkan auto-alpa mengevaluasi ulang dari tanggal tsb
+                            mundurkan_penanda(sekolah_id=libur_lama['sekolah_id'], tanggal=libur_lama['tanggal'])
                         if terhapus:
                             flash('Hari libur dihapus. Hari itu kembali dihitung sebagai hari PKL biasa.', 'success')
                         else:

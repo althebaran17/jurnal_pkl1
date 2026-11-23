@@ -156,21 +156,6 @@
             width: auto; 
             padding: 8px 12px; 
         }
-        
-        .adm-pill { 
-            display: inline-flex;
-            align-items: center;
-            padding: 3px 10px; 
-            border-radius: var(--radius-full); 
-            font-size: var(--text-xs); 
-            font-weight: 600; 
-            background: var(--primary-50); 
-            color: var(--primary-700); 
-        }
-        .adm-pill.off { 
-            background: var(--danger-bg); 
-            color: var(--danger-text); 
-        }
     
         @media (max-width: 640px) {
             .adm-panel > .hd { padding: 14px 16px; flex-wrap: wrap; gap: 8px; }
@@ -291,7 +276,6 @@
                                 <th>Username</th>
                                 <th>Role</th>
                                 <th>Sekolah</th>
-                                <th>Status</th>
                                 <th>Aksi</th>
                             </tr>
                         </thead>
@@ -320,10 +304,9 @@
                                     </div>
                                     {% endif %}
                                 </td>
-                                <td>{% if u.is_active == 0 %}<span class="adm-pill off">Nonaktif</span>{% else %}<span class="adm-pill">Aktif</span>{% endif %}</td>
                                 <td>
                                     <span class="adm-inline">
-                                        <form method="POST" class="adm-inline" onsubmit="return confirm('Apakah Anda yakin ingin menghapus akun pembimbing {{ u.nama }}?');">
+                                        <form method="POST" class="adm-inline" onsubmit="openConfirmModal(event, 'Apakah Anda yakin ingin menghapus akun pembimbing {{ u.nama }}?')">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <input type="hidden" name="aksi" value="hapus">
                                             <input type="hidden" name="user_id" value="{{ u.id }}">
@@ -340,7 +323,7 @@
                                 </td>
                             </tr>
                         {% else %}
-                            <tr><td colspan="6" class="adm-empty">Belum ada akun pembimbing.</td></tr>
+                            <tr><td colspan="5" class="adm-empty">Belum ada akun pembimbing.</td></tr>
                         {% endfor %}
                         </tbody>
                     </table>
@@ -362,6 +345,19 @@
         </div>
     </div>
 
+    <!-- MODAL KONFIRMASI UMUM (HAPUS) -->
+    <div id="confirmModal" class="modal-overlay" style="display: none;">
+        <div class="modal-box-logout">
+            <div class="modal-icon-logout">!</div>
+            <div class="modal-title-logout">Konfirmasi Hapus</div>
+            <div id="modalDesc" class="modal-desc-logout">Apakah Anda yakin ingin melanjutkan tindakan ini?</div>
+            <div class="modal-actions-logout">
+                <button type="button" class="btn-modal btn-modal-cancel" onclick="closeConfirmModal()">Batal</button>
+                <button type="button" id="btnConfirmAction" class="btn-modal btn-modal-confirm" style="background-color: var(--danger); border-color: var(--danger);">Ya, Hapus</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         function toggleSekolah() {
             var pkl = document.getElementById('roleBaru').value === 'pembimbing_pkl';
@@ -372,7 +368,36 @@
 
         function openLogoutModal() { document.getElementById('logoutModal').style.display = 'flex'; }
         function closeLogoutModal() { document.getElementById('logoutModal').style.display = 'none'; }
-        window.onclick = function (e) { var m = document.getElementById('logoutModal'); if (e.target === m) closeLogoutModal(); };
+
+        // Logika Modal Konfirmasi Hapus
+        let currentFormToSubmit = null;
+
+        function openConfirmModal(event, customMessage) {
+            event.preventDefault();
+            currentFormToSubmit = event.target;
+            if (customMessage) {
+                document.getElementById('modalDesc').textContent = customMessage;
+            }
+            document.getElementById('confirmModal').style.display = 'flex';
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('confirmModal').style.display = 'none';
+            currentFormToSubmit = null;
+        }
+
+        document.getElementById('btnConfirmAction').addEventListener('click', function() {
+            if (currentFormToSubmit) {
+                currentFormToSubmit.submit();
+            }
+        });
+
+        window.onclick = function (e) { 
+            var mLogout = document.getElementById('logoutModal'); 
+            var mConfirm = document.getElementById('confirmModal');
+            if (e.target === mLogout) closeLogoutModal();
+            if (e.target === mConfirm) closeConfirmModal();
+        };
     </script>
 </body>
 </html>

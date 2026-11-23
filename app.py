@@ -931,6 +931,17 @@ def dashboard_pembimbing():
 
     cursor.execute("""
         SELECT
+            COALESCE(SUM(CASE WHEN a.status = 'Hadir' THEN 1 ELSE 0 END), 0) as total_hadir,
+            COALESCE(SUM(CASE WHEN a.status = 'Izin' THEN 1 ELSE 0 END), 0) as total_izin,
+            COALESCE(SUM(CASE WHEN a.status = 'Sakit' THEN 1 ELSE 0 END), 0) as total_sakit,
+            COALESCE(SUM(CASE WHEN a.status = 'Alpa' THEN 1 ELSE 0 END), 0) as total_alpa
+        FROM absensi a
+        JOIN siswa s ON a.siswa_id = s.id
+        WHERE a.tanggal = %s""" + sc, (today_wib(),) + scp)
+    stat_absensi_hari_ini = cursor.fetchone()
+
+    cursor.execute("""
+        SELECT
             COALESCE(SUM(CASE WHEN p.status_pengajuan = 'Pending' THEN 1 ELSE 0 END), 0) as pending_izin
         FROM pengajuan_absensi p
         JOIN siswa s ON p.siswa_id = s.id
@@ -945,8 +956,9 @@ def dashboard_pembimbing():
         WHERE 1=1""" + sc + " ORDER BY l.created_at DESC LIMIT 5", scp)
     laporan_pending = cursor.fetchall()
 
-    cursor.execute("SELECT * FROM pengumuman_pembimbing WHERE sekolah_id IS NULL ORDER BY id DESC LIMIT 1")
-    pengumuman = cursor.fetchone()
+    cursor.execute("SELECT id, pesan, updated_at FROM pengumuman_pembimbing "
+                   "WHERE sekolah_id IS NULL ORDER BY id DESC LIMIT 20")
+    pengumuman_kelola = cursor.fetchall()
 
     cursor.close()
     conn.close()
@@ -957,9 +969,10 @@ def dashboard_pembimbing():
         total_siswa=total_siswa,
         laporan=stat_laporan,
         absensi=stat_absensi,
+        absensi_hari_ini=stat_absensi_hari_ini,
         pengajuan=stat_pengajuan,
         laporan_list=laporan_pending,
-        pengumuman=pengumuman
+        pengumuman_kelola=pengumuman_kelola
     )
 
 
@@ -972,7 +985,9 @@ def update_pesan_pembimbing():
 
     pesan_baru = request.form.get('pesan', '').strip()
 
-    if pesan_baru:
+    if len(pesan_baru) > 2000:
+        flash('Pesan pengumuman terlalu panjang (maksimal 2000 karakter).', 'danger')
+    elif pesan_baru:
         conn = get_db_connection()
         cursor = conn.cursor()
         # INSERT pesan baru ke tabel pengumuman_pembimbing
@@ -987,6 +1002,73 @@ def update_pesan_pembimbing():
         flash('Pesan pengumuman tidak boleh kosong!', 'danger')
 
     return redirect(url_for('dashboard_pembimbing'))
+
+
+@app.route('/pembimbing/pengumuman/<int:pengumuman_id>/edit', methods=['POST'])
+def edit_pengumuman(pengumuman_id):
+    if not is_staff():
+        flash('Akses ditolak.', 'danger')
+        return redirect(url_for('login'))
+
+    pesan = request.form.get('pesan', '').strip()
+    if not pesan:
+        flash('Pesan pengumuman tidak boleh kosong!', 'danger')
+        return redirect(url_for('dashboard_pembimbing'))
+    if len(pesan) > 2000:
+        flash('Pesan pengumuman terlalu panjang (maksimal 2000 karakter).', 'danger')
+        return redirect(url_for('dashboard_pembimbing'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE pengumuman_pembimbing SET pesan = %s WHERE id = %s AND sekolah_id IS NULL",
+            (pesan, pengumuman_id))
+        conn.commit()
+        if cursor.rowcount:
+            # Tandai belum dibaca lagi supaya siswa melihat perubahan isinya.
+            cursor.execute("DELETE FROM pengumuman_dibaca WHERE pengumuman_id = %s", (pengumuman_id,))
+            conn.commit()
+            flash('Pengumuman berhasil diperbarui.', 'success')
+        else:
+            flash('Pengumuman tidak ditemukan atau tidak ada perubahan.', 'warning')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        print("[ERROR] Gagal memperbarui pengumuman:", e)  # detail hanya di log server
+        flash('Gagal memperbarui pengumuman. Silakan coba lagi.', 'danger')
+    finally:
+        cursor.close()
+        conn.close()
+    return redirect(url_for('dashboard_pembimbing'))
+
+
+@app.route('/pembimbing/pengumuman/<int:pengumuman_id>/hapus', methods=['POST'])
+def hapus_pengumuman(pengumuman_id):
+    if not is_staff():
+        flash('Akses ditolak.', 'danger')
+        return redirect(url_for('login'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "DELETE FROM pengumuman_pembimbing WHERE id = %s AND sekolah_id IS NULL", (pengumuman_id,))
+        hapus = cursor.rowcount
+        if hapus:
+            cursor.execute("DELETE FROM pengumuman_dibaca WHERE pengumuman_id = %s", (pengumuman_id,))
+        conn.commit()
+        flash('Pengumuman berhasil dihapus.' if hapus else 'Pengumuman tidak ditemukan.',
+              'success' if hapus else 'warning')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        print("[ERROR] Gagal menghapus pengumuman:", e)  # detail hanya di log server
+        flash('Gagal menghapus pengumuman. Silakan coba lagi.', 'danger')
+    finally:
+        cursor.close()
+        conn.close()
+    return redirect(url_for('dashboard_pembimbing'))
+
+
 # =========================================================
 # ROUTE PROFIL SISWA
 # =========================================================
@@ -1393,7 +1475,7 @@ def absensi():
                 flash('Presensi selfie berhasil disimpan!', 'success')
                 cursor.close()
                 conn.close()
-                return redirect(url_for('dashboard_siswa'))
+                return redirect(url_for('riwayat_absensi'))
             except Exception as e:
                 conn.rollback()
                 try:
@@ -1430,18 +1512,46 @@ def riwayat_absensi():
     role = session.get('role')
     if role == 'pembimbing_pkl':
         return redirect(url_for('pkl.absensi'))   # modul pkl terpisah
-    if role == 'siswa':
-        return redirect(url_for('dashboard_siswa'))   # riwayat hanya untuk pembimbing/admin
-    if not is_staff():
+    if role != 'siswa' and not is_staff():
         flash('Akses ditolak.', 'danger')
         return redirect(url_for('login'))
-
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
 
     filter_tanggal = request.args.get('tanggal', '').strip()
     filter_status = request.args.get('status', '').strip()
     filter_nama = request.args.get('nama_siswa', '').strip()
+    if filter_status not in ('Hadir', 'Izin', 'Sakit', 'Alpa'):
+        filter_status = ''
+    if filter_tanggal:
+        try:
+            datetime.strptime(filter_tanggal, '%Y-%m-%d')
+        except ValueError:
+            filter_tanggal = ''
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    if role == 'siswa':
+        # Siswa hanya melihat presensinya sendiri (siswa_id diambil dari sesi, bukan dari URL).
+        query = """
+            SELECT a.*, TIME_FORMAT(a.created_at, '%H:%i') AS jam_absen
+            FROM absensi a
+            WHERE a.siswa_id = %s
+        """
+        params = [session.get('siswa_id')]
+        if filter_tanggal:
+            query += " AND a.tanggal = %s"
+            params.append(filter_tanggal)
+        if filter_status:
+            query += " AND a.status = %s"
+            params.append(filter_status)
+        query += " ORDER BY a.tanggal DESC"
+        cursor.execute(query, tuple(params))
+        absensi_list = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return render_template('riwayat_absensi.html', absensi_list=absensi_list, is_pembimbing=False,
+                               filter_tanggal=filter_tanggal, filter_status=filter_status, filter_nama='')
+
 
     query = """
         SELECT 

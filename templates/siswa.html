@@ -241,11 +241,6 @@
                                             Edit
                                         </a>
 
-                                        <!-- Tombol Nilai -->
-                                        <a href="{{ url_for('nilai_siswa_page', siswa_id=s.id) }}" class="btn-table-action btn-action-nilai">
-                                            Nilai
-                                        </a>
-
                                         <!-- Tombol Hapus Akun (Khusus Pembimbing Industri) -->
                                         {% if session.get('role') == 'pembimbing_industri' %}
                                             <button type="button" class="btn-table-action btn-action-hapus" onclick="openHapusModal('{{ s.id }}', '{{ s.nama }}')">

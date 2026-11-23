@@ -153,29 +153,7 @@
             width: 19px;
             height: 19px;
         }
-        .btn-submit {
-            width: 100%;
-            padding: 12px 18px;
-            background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
-            color: #ffffff;
-            border: none;
-            border-radius: var(--radius-sm);
-            font-family: inherit;
-            font-size: var(--text-base);
-            font-weight: 700;
-            cursor: pointer;
-            transition: var(--transition);
-            margin-top: 8px;
-            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
-        }
-        .btn-submit:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
-            filter: brightness(1.04);
-        }
-        .btn-submit:active {
-            transform: translateY(0);
-        }
+
         .login-footer {
             margin-top: 28px;
             padding-top: 20px;
@@ -199,7 +177,7 @@
 <body>
 
     <video class="bg-video" autoplay loop muted playsinline>
-        <source src="{{ url_for('static', filename='video/bg-login.mp4') }}" type="video/mp4">
+        <source src="{{ url_for('static', filename='video/bg-login.mp4') }}" type="video/mp4" onerror="this.parentNode.style.display='none'">
     </video>
 
     <div class="bg-overlay"></div>
@@ -222,7 +200,7 @@
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
             {% for category, message in messages %}
-              <div class="alert alert-{{ category }}">{{ message }}</div>
+              <div class="alert alert-{{ category }}" role="alert">{{ message }}</div>
             {% endfor %}
           {% endif %}
         {% endwith %}

@@ -25,20 +25,42 @@ from flask import (
     url_for,
     send_file
 )
+import click
 import mysql.connector
 import pyotp
 import segno
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 
 from config import Config, get_db_connection
 from waktu import WIB, now_wib, sekarang_wib, today_wib
 from auto_alpa import jalankan_auto_alpa, pastikan_penjadwal_jalan
+from keamanan_login import (
+    catat_gagal, format_sisa, kunci_2fa, kunci_ip, kunci_username, reset_gagal, sisa_kunci,
+)
 from pembimbing_pkl import pkl_bp
 
 app = Flask(__name__)
 app.config.from_object(Config)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+
+# Di Railway aplikasi berada di belakang 1 lapis proxy. Tanpa ProxyFix, request.remote_addr
+# selalu IP proxy (semua pengguna tampak sama) sehingga pembatasan login per-IP tidak berguna.
+# Jumlah lapis proxy yang DIPERCAYA diatur lewat env TRUST_PROXY_HOPS (0 = matikan; jangan
+# diisi lebih besar dari kenyataan, nanti header X-Forwarded-For bisa dipalsukan penyerang).
+try:
+    _PROXY_HOPS = int(os.environ.get('TRUST_PROXY_HOPS') or
+                      (1 if (os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_PROJECT_ID')) else 0))
+except ValueError:
+    _PROXY_HOPS = 0
+if _PROXY_HOPS > 0:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=_PROXY_HOPS, x_proto=_PROXY_HOPS)
+
+# Login bertahan 7 hari walau browser ditutup, lalu otomatis logout.
+MASA_LOGIN = timedelta(days=7)
+app.config['PERMANENT_SESSION_LIFETIME'] = MASA_LOGIN
+app.config.setdefault('SESSION_COOKIE_SAMESITE', 'Lax')
 
 # Modul Pembimbing PKL dipisah total (route di pembimbing_pkl.py, template di templates/pkl/)
 app.register_blueprint(pkl_bp)
@@ -68,12 +90,53 @@ def not_found_error(error):
                            title="Halaman Tidak Ditemukan", 
                            message="Halaman atau file yang Anda cari tidak ditemukan atau telah dipindahkan."), 404
 
+def _db_tidak_tersedia(exc):
+    """True bila error 500 sebenarnya karena database tidak terjangkau.
+    get_db_connection() mengembalikan None saat koneksi gagal, sehingga kode di route
+    biasanya meledak dengan AttributeError "'NoneType' object has no attribute 'cursor'"."""
+    if isinstance(exc, (mysql.connector.errors.OperationalError, mysql.connector.errors.InterfaceError)):
+        return True
+    if isinstance(exc, AttributeError):
+        teks = str(exc)
+        return "'NoneType' object has no attribute" in teks and any(
+            k in teks for k in ("'cursor'", "'close'", "'commit'", "'rollback'", "'is_connected'"))
+    return False
+
+
 @app.errorhandler(500)
 def internal_error(error):
+    if _db_tidak_tersedia(getattr(error, 'original_exception', None)):
+        return render_template('error.html',
+                               code="503",
+                               title="Database Sedang Tidak Tersedia",
+                               message="Server belum bisa terhubung ke database. Data Anda aman. "
+                                       "Silakan tunggu 1-2 menit lalu muat ulang halaman; "
+                                       "bila masih terjadi, hubungi admin."), 503
     return render_template('error.html', 
                            code="500", 
                            title="Kesalahan Server", 
                            message="Terjadi masalah internal pada server. Silakan coba beberapa saat lagi."), 500
+
+
+def mulai_sesi_login():
+    """Tandai sesi sebagai permanen (cookie tetap ada setelah browser ditutup) + catat waktu login."""
+    session.permanent = True
+    session['login_at'] = time.time()
+
+
+@app.before_request
+def batasi_masa_login():
+    """Logout otomatis tepat 7 hari setelah login (bukan diperpanjang tiap request)."""
+    if session.get('logged_in') is True:
+        mulai = session.get('login_at')
+        if mulai is None:
+            # sesi lama sebelum perbaikan ini: mulai hitung dari sekarang
+            mulai_sesi_login()
+        elif time.time() - mulai > MASA_LOGIN.total_seconds():
+            session.clear()
+            flash('Sesi login Anda telah berakhir (7 hari). Silakan login kembali.', 'warning')
+            if request.method == 'GET' and request.endpoint not in ('login', 'static'):
+                return redirect(url_for('login'))
 
 
 @app.before_request
@@ -98,25 +161,66 @@ def tambah_header_keamanan(resp):
     return resp
 
 
-# Pembatasan login sederhana (in-memory, per proses): 5 gagal / 10 menit per IP+username
-LOGIN_MAX_GAGAL = 5
-LOGIN_JENDELA_DETIK = 600
-_login_gagal = {}
+# Pembatasan percobaan login: lihat keamanan_login.py (disimpan di database, bertahap,
+# dihitung terpisah per-IP dan per-akun, username dinormalisasi).
+# Hash palsu supaya waktu respons username yang tidak ada ~ sama dengan username yang ada.
+_HASH_PALSU = generate_password_hash(secrets.token_hex(8))
 
-def _kunci_login(username):
-    return f"{request.remote_addr}|{username.lower()}"
 
-def login_terkunci(username):
+# Akun yang DIHAPUS (atau dinonaktifkan) langsung dikeluarkan dari sesi yang masih terbuka
+# (sesi berlaku 7 hari, jadi tanpa pengecekan ini akun terhapus masih bisa dipakai).
+_cache_akun = {}        # user_id -> (waktu cek, valid)
+TTL_CEK_AKUN = 30       # detik; mengurangi query ke database
+
+
+def akun_masih_valid(user_id):
     sekarang = time.time()
-    daftar = [t for t in _login_gagal.get(_kunci_login(username), []) if sekarang - t < LOGIN_JENDELA_DETIK]
-    _login_gagal[_kunci_login(username)] = daftar
-    return len(daftar) >= LOGIN_MAX_GAGAL
+    hit = _cache_akun.get(user_id)
+    if hit and sekarang - hit[0] < TTL_CEK_AKUN:
+        return hit[1]
+    conn = get_db_connection()
+    if not conn:
+        return True  # database bermasalah: jangan mengeluarkan semua pengguna
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("SELECT is_active FROM users WHERE id = %s", (user_id,))
+        row = cur.fetchone()
+    except Exception as e:
+        print("[ERROR] cek status akun:", e)
+        return True
+    finally:
+        cur.close()
+        conn.close()
+    valid = bool(row) and row.get('is_active') != 0
+    if len(_cache_akun) > 5000:
+        _cache_akun.clear()
+    _cache_akun[user_id] = (sekarang, valid)
+    return valid
 
-def catat_login_gagal(username):
-    _login_gagal.setdefault(_kunci_login(username), []).append(time.time())
 
-def reset_login_gagal(username):
-    _login_gagal.pop(_kunci_login(username), None)
+@app.before_request
+def tolak_akun_terhapus():
+    if not is_logged_in() or request.endpoint in (None, 'static', 'login', 'login_2fa', 'logout'):
+        return None
+    uid = session.get('user_id')
+    if uid is None or akun_masih_valid(uid):
+        return None
+    session.clear()
+    flash('Akun Anda sudah tidak aktif atau telah dihapus. Hubungi pembimbing Anda.', 'warning')
+    return redirect(url_for('login'))
+
+
+@app.before_request
+def paksa_ganti_password():
+    """Siswa yang masih memakai password awal (= NISN) hanya boleh membuka halaman profil."""
+    if not session.get('wajib_ganti_pw') or not is_logged_in():
+        return None
+    if request.endpoint in (None, 'profil', 'logout', 'login', 'static', 'foto_profil_file'):
+        return None
+    if request.method == 'GET':
+        flash('Demi keamanan, ganti dulu password awal (NISN) Anda di bagian Ganti Password.', 'warning')
+    return redirect(url_for('profil'))
+
 
 # =========================================================
 # PERBAIKAN: Tentukan Absolute Path & Ekstensi File yang Diizinkan
@@ -138,6 +242,10 @@ if app.config.get('UPLOAD_FOLDER'):
 
 # Login admin wajib kode 6 digit dari Google Authenticator (TOTP). Set env ADMIN_2FA=0 untuk mematikan.
 ADMIN_2FA_WAJIB = os.environ.get('ADMIN_2FA', '1') != '0'
+# Kode pendaftaran Authenticator admin (rahasia pemilik server). Tanpa kode ini, orang yang hanya
+# tahu password admin TIDAK bisa mendaftarkan Authenticator-nya sendiri (siapa cepat dia dapat).
+# Alternatif tanpa kode: jalankan `flask --app app admin-2fa <username>` di server.
+SETUP_TOKEN_2FA = os.environ.get('ADMIN_SETUP_TOKEN', '').strip()
 BATAS_2FA_DETIK = 300   # waktu maksimal antara password benar -> kode 2FA dimasukkan
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
@@ -298,9 +406,42 @@ def _pastikan_auto_alpa_jalan():
 
 
 @app.cli.command('auto-alpa')
-def cli_auto_alpa():
+@click.option('--dry-run', is_flag=True, help='Hanya tampilkan rincian Alpa yang AKAN dicatat, tanpa menyimpan.')
+def cli_auto_alpa(dry_run):
     """Catat Alpa untuk siswa yang belum absen (untuk cron / dijalankan manual)."""
-    print(f"Alpa baru dicatat: {jalankan_auto_alpa()}")
+    jumlah = jalankan_auto_alpa(dry_run=dry_run)
+    print(f"[DRY-RUN] Alpa yang AKAN dicatat: {jumlah}" if dry_run else f"Alpa baru dicatat: {jumlah}")
+
+
+@app.cli.command('admin-2fa')
+@click.argument('username')
+@click.option('--reset', is_flag=True, help='Ganti Authenticator lama (mis. HP hilang).')
+def cli_admin_2fa(username, reset):
+    """Daftarkan Authenticator untuk admin lewat server (tanpa kode pendaftaran web)."""
+    conn = get_db_connection()
+    if not conn:
+        print('Gagal terhubung ke database.')
+        return
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("SELECT id, totp_secret FROM users WHERE username = %s AND role = 'admin'", (username,))
+        user = cur.fetchone()
+        if not user:
+            print(f'Admin "{username}" tidak ditemukan.')
+            return
+        if user.get('totp_secret') and not reset:
+            print('Admin ini sudah punya Authenticator. Tambahkan --reset untuk menggantinya.')
+            return
+        secret = pyotp.random_base32()
+        cur.execute("UPDATE users SET totp_secret = %s WHERE id = %s", (secret, user['id']))
+        conn.commit()
+        uri = pyotp.TOTP(secret).provisioning_uri(name=username, issuer_name='E-Jurnal PKL')
+        print('Pindai QR berikut dengan aplikasi Authenticator (atau ketik kunci manual):')
+        segno.make(uri, error='m').terminal(compact=True)
+        print('Kunci manual:', secret)
+    finally:
+        cur.close()
+        conn.close()
 
 
 def pastikan_skema():
@@ -333,6 +474,18 @@ def pastikan_skema():
     except Exception as e:
         print(f"[MIGRASI] gagal membuat tabel hari_libur: {e}")
     try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pengumuman_dibaca (
+                user_id INT NOT NULL,
+                pengumuman_id INT NOT NULL,
+                dibaca_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, pengumuman_id)
+            )
+        """)
+        conn.commit()
+    except Exception as e:
+        print(f"[MIGRASI] gagal membuat tabel pengumuman_dibaca: {e}")
+    try:
         cursor.execute("SHOW COLUMNS FROM users LIKE 'totp_secret'")
         if cursor.fetchone() is None:
             cursor.execute("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64) NULL")
@@ -351,9 +504,10 @@ def inject_siswa():
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
-                SELECT s.*, u.nama, u.username 
-                FROM siswa s 
-                JOIN users u ON s.user_id = u.id 
+                SELECT s.*, u.nama, u.username, k.nama AS sekolah, k.nama AS nama_sekolah
+                FROM siswa s
+                JOIN users u ON s.user_id = u.id
+                LEFT JOIN sekolah k ON s.sekolah_id = k.id
                 WHERE s.id = %s
             """, (session['siswa_id'],))
             siswa_data = cursor.fetchone()
@@ -363,6 +517,64 @@ def inject_siswa():
         except Exception:
             return dict(siswa=None)
     return dict(siswa=None)
+
+@app.context_processor
+def inject_pengumuman():
+    """Isi lonceng pengumuman untuk SEMUA halaman yang punya lonceng (bukan hanya dashboard siswa).
+
+    Status 'sudah dibaca' disimpan di database per user, jadi tidak hilang saat ganti
+    browser/perangkat atau data browser dibersihkan.
+    """
+    kosong = dict(pengumuman_list=[], pengumuman_belum_dibaca=0)
+    if not is_logged_in() or not session.get('user_id'):
+        return kosong
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        sekolah_id = session.get('sekolah_id')
+        if session.get('role') == 'siswa' and session.get('siswa_id'):
+            cursor.execute("SELECT sekolah_id FROM siswa WHERE id = %s", (session['siswa_id'],))
+            baris = cursor.fetchone()
+            sekolah_id = baris['sekolah_id'] if baris else None
+        cursor.execute("""
+            SELECT p.*, (d.pengumuman_id IS NOT NULL) AS dibaca
+            FROM pengumuman_pembimbing p
+            LEFT JOIN pengumuman_dibaca d
+                   ON d.pengumuman_id = p.id AND d.user_id = %s
+            WHERE p.sekolah_id IS NULL OR p.sekolah_id = %s
+            ORDER BY p.id DESC LIMIT 30
+        """, (session['user_id'], sekolah_id))
+        daftar = cursor.fetchall()
+        cursor.close()
+        return dict(pengumuman_list=daftar,
+                    pengumuman_belum_dibaca=sum(1 for x in daftar if not x['dibaca']))
+    except Exception:
+        return kosong
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/pengumuman/tandai-dibaca', methods=['POST'])
+def tandai_pengumuman_dibaca():
+    if not is_logged_in():
+        return jsonify({'status': 'error'}), 401
+    data = request.get_json(silent=True) or {}
+    ids = [int(i) for i in data.get('ids', []) if str(i).isdigit()][:100]
+    if ids:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.executemany(
+                "INSERT IGNORE INTO pengumuman_dibaca (user_id, pengumuman_id) VALUES (%s, %s)",
+                [(session['user_id'], i) for i in ids])
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+    return jsonify({'status': 'ok'})
+
 
 @app.context_processor
 def inject_notif_staff():
@@ -422,8 +634,15 @@ def login():
             flash('Username dan password wajib diisi!', 'danger')
             return render_template('login.html')
 
-        if login_terkunci(username):
-            flash('Terlalu banyak percobaan login. Coba lagi dalam 10 menit.', 'danger')
+        if len(username) > 64 or len(password) > 256:
+            flash('Username atau password salah!', 'danger')
+            return render_template('login.html')
+
+        k_ip = kunci_ip(request.remote_addr)
+        k_user = kunci_username(username)
+        sisa = sisa_kunci([k_ip, k_user])
+        if sisa:
+            flash(f'Terlalu banyak percobaan login. Coba lagi dalam {format_sisa(sisa)}.', 'danger')
             return render_template('login.html')
 
         conn = get_db_connection()
@@ -437,7 +656,18 @@ def login():
             cursor.execute(query, (username,))
             user = cursor.fetchone()
 
-            if user and check_password_hash(user['password'], password):
+            # Kunci memakai nama akun yang SEBENARNYA cocok di database, sehingga varian
+            # penulisan (aksen, huruf besar/kecil) tidak bisa dipakai menghindari batas.
+            k_kanon = kunci_username(user['username']) if user else k_user
+            if k_kanon != k_user:
+                sisa = sisa_kunci([k_kanon])
+                if sisa:
+                    flash(f'Terlalu banyak percobaan login. Coba lagi dalam {format_sisa(sisa)}.', 'danger')
+                    return render_template('login.html')
+
+            sandi_benar = check_password_hash(user['password'] if user else _HASH_PALSU, password)
+
+            if user and sandi_benar:
                 # -----------------------------------------------------------------
                 # 📌 PENGECEKAN STATUS AKUN (is_active)
                 # Jika is_active == 0, blokir akses login dan tampilkan notifikasi.
@@ -460,6 +690,7 @@ def login():
                     session.clear()
                     session['pending_2fa_uid'] = user['id']
                     session['pending_2fa_at'] = time.time()
+                    session['pending_2fa_lemah'] = (password.lower() == user['username'].lower())
                     cursor.close()
                     conn.close()
                     return redirect(url_for('login_2fa'))
@@ -467,12 +698,16 @@ def login():
                 # Membersihkan frasa (Guru) atau (Pembimbing) dari nama
                 nama_bersih = user['nama'].replace(' (Guru)', '').replace('(Guru)', '').replace(' (Pembimbing)', '').replace('(Pembimbing)', '').strip()
 
-                reset_login_gagal(username)
+                reset_gagal([k_user, k_kanon])  # hanya hitungan akun; hitungan IP tidak dihapus
                 session.clear()  # cegah session fixation
+                mulai_sesi_login()
                 session['logged_in'] = True
                 session['user_id'] = user['id']
                 session['username'] = user['username']
                 session['nama'] = nama_bersih  # Tersimpan bersih di session
+                # Password awal siswa = NISN (= username): wajib diganti sebelum memakai fitur lain.
+                if user['role'] == 'siswa' and password.lower() == user['username'].lower():
+                    session['wajib_ganti_pw'] = True
                 session['role'] = user['role']
                 session['sekolah_id'] = user.get('sekolah_id')
 
@@ -492,10 +727,11 @@ def login():
                 else:
                     return redirect(url_for('dashboard_pembimbing'))
             else:
-                catat_login_gagal(username)
+                catat_gagal([k_ip, k_user, k_kanon])
                 flash('Username atau password salah!', 'danger')
         except mysql.connector.Error as e:
-            flash(f'Error Database: {e}', 'danger')
+            print("[ERROR] " + "Terjadi kesalahan pada database" + ":", e)  # detail hanya di log server
+            flash("Terjadi kesalahan pada database. Silakan coba lagi.", 'danger')
         finally:
             cursor.close()
             conn.close()
@@ -528,23 +764,38 @@ def login_2fa():
 
         secret = user.get('totp_secret')
         mode_setup = not secret
-        if mode_setup:
+        # Tahap 1 pendaftaran: buktikan memegang kode pendaftaran dulu. QR/secret baru
+        # ditampilkan setelah itu, jadi password saja tidak cukup untuk mendaftar.
+        tahap_token = mode_setup and session.get('setup_2fa_ok') is not True
+        if mode_setup and not tahap_token:
             secret = session.get('pending_2fa_secret') or pyotp.random_base32()
             session['pending_2fa_secret'] = secret
 
-        kunci = '2fa:' + user['username']
+        k_ip = kunci_ip(request.remote_addr)
+        k_2fa = kunci_2fa(user['id'])
         if request.method == 'POST':
-            if login_terkunci(kunci):
-                flash('Terlalu banyak kode salah. Coba lagi dalam 10 menit.', 'danger')
+            sisa = sisa_kunci([k_ip, k_2fa])
+            if sisa:
+                flash(f'Terlalu banyak kode salah. Coba lagi dalam {format_sisa(sisa)}.', 'danger')
+            elif tahap_token:
+                kirim = request.form.get('kode_setup', '').strip()
+                if SETUP_TOKEN_2FA and hmac.compare_digest(kirim.encode(), SETUP_TOKEN_2FA.encode()):
+                    session['setup_2fa_ok'] = True
+                    return redirect(url_for('login_2fa'))
+                catat_gagal([k_ip, k_2fa])
+                if SETUP_TOKEN_2FA:
+                    flash('Kode pendaftaran salah.', 'danger')
+                else:
+                    flash('Pendaftaran Authenticator belum diaktifkan oleh pemilik server.', 'danger')
             else:
                 kode = re.sub(r'\D', '', request.form.get('kode', ''))
                 if len(kode) == 6 and pyotp.TOTP(secret).verify(kode, valid_window=1):
                     if mode_setup:
                         cursor.execute("UPDATE users SET totp_secret = %s WHERE id = %s", (secret, user['id']))
                         conn.commit()
-                    reset_login_gagal(kunci)
-                    reset_login_gagal(user['username'])
+                    reset_gagal([k_2fa, kunci_username(user['username'])])
                     session.clear()  # cegah session fixation
+                    mulai_sesi_login()
                     session['logged_in'] = True
                     session['user_id'] = user['id']
                     session['username'] = user['username']
@@ -552,15 +803,17 @@ def login_2fa():
                     session['role'] = 'admin'
                     session['sekolah_id'] = user.get('sekolah_id')
                     return redirect(url_for('dashboard_admin'))
-                catat_login_gagal(kunci)
+                catat_gagal([k_ip, k_2fa])
                 flash('Kode salah atau sudah kedaluwarsa. Periksa jam HP Anda lalu coba lagi.', 'danger')
 
         qr_uri = None
-        if mode_setup:
+        if mode_setup and not tahap_token:
             uri = pyotp.TOTP(secret).provisioning_uri(name=user['username'], issuer_name='E-Jurnal PKL')
             qr_uri = segno.make(uri, error='m').svg_data_uri(scale=5, border=2)
         return render_template('login_2fa.html', mode_setup=mode_setup, qr_uri=qr_uri,
-                               secret=secret if mode_setup else None, username=user['username'])
+                               tahap_token=tahap_token, token_belum_diatur=not SETUP_TOKEN_2FA,
+                               secret=secret if (mode_setup and not tahap_token) else None,
+                               username=user['username'])
     finally:
         cursor.close()
         conn.close()
@@ -591,9 +844,10 @@ def dashboard_siswa():
 
     # 1. Detail Data Siswa
     cursor.execute("""
-        SELECT s.*, u.nama, u.username 
-        FROM siswa s 
-        JOIN users u ON s.user_id = u.id 
+        SELECT s.*, u.nama, u.username, k.nama AS sekolah, k.nama AS nama_sekolah
+        FROM siswa s
+        JOIN users u ON s.user_id = u.id
+        LEFT JOIN sekolah k ON s.sekolah_id = k.id
         WHERE s.id = %s
     """, (siswa_id,))
     detail_siswa = cursor.fetchone()
@@ -635,15 +889,6 @@ def dashboard_siswa():
     cursor.execute("SELECT * FROM absensi WHERE siswa_id = %s AND tanggal = %s", (siswa_id, today_str))
     sudah_absen = cursor.fetchone()
 
-    # 6. Pengumuman Pembimbing
-    # Pengumuman global (sekolah_id NULL) + pengumuman untuk sekolah siswa ini
-    cursor.execute("""
-        SELECT * FROM pengumuman_pembimbing
-        WHERE sekolah_id IS NULL OR sekolah_id = %s
-        ORDER BY id DESC
-    """, (detail_siswa.get('sekolah_id') if detail_siswa else None,))
-    pengumuman_list = cursor.fetchall()
-
     cursor.close()
     conn.close()
 
@@ -663,8 +908,7 @@ def dashboard_siswa():
         siswa=detail_siswa,
         laporan=stat_laporan,
         absensi=stat_absensi,
-        laporan_list=laporan_terbaru,
-        pengumuman_list=pengumuman_list
+        laporan_list=laporan_terbaru
     )
 
 
@@ -707,6 +951,17 @@ def dashboard_pembimbing():
 
     cursor.execute("""
         SELECT
+            COALESCE(SUM(CASE WHEN a.status = 'Hadir' THEN 1 ELSE 0 END), 0) as total_hadir,
+            COALESCE(SUM(CASE WHEN a.status = 'Izin' THEN 1 ELSE 0 END), 0) as total_izin,
+            COALESCE(SUM(CASE WHEN a.status = 'Sakit' THEN 1 ELSE 0 END), 0) as total_sakit,
+            COALESCE(SUM(CASE WHEN a.status = 'Alpa' THEN 1 ELSE 0 END), 0) as total_alpa
+        FROM absensi a
+        JOIN siswa s ON a.siswa_id = s.id
+        WHERE a.tanggal = %s""" + sc, (today_wib(),) + scp)
+    stat_absensi_hari_ini = cursor.fetchone()
+
+    cursor.execute("""
+        SELECT
             COALESCE(SUM(CASE WHEN p.status_pengajuan = 'Pending' THEN 1 ELSE 0 END), 0) as pending_izin
         FROM pengajuan_absensi p
         JOIN siswa s ON p.siswa_id = s.id
@@ -721,8 +976,9 @@ def dashboard_pembimbing():
         WHERE 1=1""" + sc + " ORDER BY l.created_at DESC LIMIT 5", scp)
     laporan_pending = cursor.fetchall()
 
-    cursor.execute("SELECT * FROM pengumuman_pembimbing WHERE sekolah_id IS NULL ORDER BY id DESC LIMIT 1")
-    pengumuman = cursor.fetchone()
+    cursor.execute("SELECT id, pesan, updated_at FROM pengumuman_pembimbing "
+                   "WHERE sekolah_id IS NULL ORDER BY id DESC LIMIT 20")
+    pengumuman_kelola = cursor.fetchall()
 
     cursor.close()
     conn.close()
@@ -733,9 +989,10 @@ def dashboard_pembimbing():
         total_siswa=total_siswa,
         laporan=stat_laporan,
         absensi=stat_absensi,
+        absensi_hari_ini=stat_absensi_hari_ini,
         pengajuan=stat_pengajuan,
         laporan_list=laporan_pending,
-        pengumuman=pengumuman
+        pengumuman_kelola=pengumuman_kelola
     )
 
 
@@ -748,7 +1005,9 @@ def update_pesan_pembimbing():
 
     pesan_baru = request.form.get('pesan', '').strip()
 
-    if pesan_baru:
+    if len(pesan_baru) > 2000:
+        flash('Pesan pengumuman terlalu panjang (maksimal 2000 karakter).', 'danger')
+    elif pesan_baru:
         conn = get_db_connection()
         cursor = conn.cursor()
         # INSERT pesan baru ke tabel pengumuman_pembimbing
@@ -763,6 +1022,73 @@ def update_pesan_pembimbing():
         flash('Pesan pengumuman tidak boleh kosong!', 'danger')
 
     return redirect(url_for('dashboard_pembimbing'))
+
+
+@app.route('/pembimbing/pengumuman/<int:pengumuman_id>/edit', methods=['POST'])
+def edit_pengumuman(pengumuman_id):
+    if not is_staff():
+        flash('Akses ditolak.', 'danger')
+        return redirect(url_for('login'))
+
+    pesan = request.form.get('pesan', '').strip()
+    if not pesan:
+        flash('Pesan pengumuman tidak boleh kosong!', 'danger')
+        return redirect(url_for('dashboard_pembimbing'))
+    if len(pesan) > 2000:
+        flash('Pesan pengumuman terlalu panjang (maksimal 2000 karakter).', 'danger')
+        return redirect(url_for('dashboard_pembimbing'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE pengumuman_pembimbing SET pesan = %s WHERE id = %s AND sekolah_id IS NULL",
+            (pesan, pengumuman_id))
+        conn.commit()
+        if cursor.rowcount:
+            # Tandai belum dibaca lagi supaya siswa melihat perubahan isinya.
+            cursor.execute("DELETE FROM pengumuman_dibaca WHERE pengumuman_id = %s", (pengumuman_id,))
+            conn.commit()
+            flash('Pengumuman berhasil diperbarui.', 'success')
+        else:
+            flash('Pengumuman tidak ditemukan atau tidak ada perubahan.', 'warning')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        print("[ERROR] Gagal memperbarui pengumuman:", e)  # detail hanya di log server
+        flash('Gagal memperbarui pengumuman. Silakan coba lagi.', 'danger')
+    finally:
+        cursor.close()
+        conn.close()
+    return redirect(url_for('dashboard_pembimbing'))
+
+
+@app.route('/pembimbing/pengumuman/<int:pengumuman_id>/hapus', methods=['POST'])
+def hapus_pengumuman(pengumuman_id):
+    if not is_staff():
+        flash('Akses ditolak.', 'danger')
+        return redirect(url_for('login'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "DELETE FROM pengumuman_pembimbing WHERE id = %s AND sekolah_id IS NULL", (pengumuman_id,))
+        hapus = cursor.rowcount
+        if hapus:
+            cursor.execute("DELETE FROM pengumuman_dibaca WHERE pengumuman_id = %s", (pengumuman_id,))
+        conn.commit()
+        flash('Pengumuman berhasil dihapus.' if hapus else 'Pengumuman tidak ditemukan.',
+              'success' if hapus else 'warning')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        print("[ERROR] Gagal menghapus pengumuman:", e)  # detail hanya di log server
+        flash('Gagal menghapus pengumuman. Silakan coba lagi.', 'danger')
+    finally:
+        cursor.close()
+        conn.close()
+    return redirect(url_for('dashboard_pembimbing'))
+
+
 # =========================================================
 # ROUTE PROFIL SISWA
 # =========================================================
@@ -846,7 +1172,8 @@ def profil():
                     flash('Profil berhasil diperbarui!', 'success')
                 except mysql.connector.Error as e:
                     conn.rollback()
-                    flash(f'Gagal memperbarui profil: {e}', 'danger')
+                    print("[ERROR] " + "Gagal memperbarui profil" + ":", e)  # detail hanya di log server
+                    flash("Gagal memperbarui profil. Silakan coba lagi.", 'danger')
 
         # 2. PROSES GANTI PASSWORD
         elif aksi == 'ganti_password':
@@ -854,24 +1181,28 @@ def profil():
             password_baru = request.form.get('password_baru', '').strip()
             konfirmasi_password = request.form.get('konfirmasi_password', '').strip()
 
-            cursor.execute("SELECT password FROM users WHERE id = %s", (user_id,))
+            cursor.execute("SELECT password, username FROM users WHERE id = %s", (user_id,))
             user_data = cursor.fetchone()
 
             if not user_data or not check_password_hash(user_data['password'], password_lama):
                 flash('Password lama / NISN yang Anda masukkan salah!', 'danger')
             elif password_baru != konfirmasi_password:
                 flash('Konfirmasi password baru tidak cocok!', 'danger')
-            elif len(password_baru) < 6:
-                flash('Password baru minimal harus 6 karakter!', 'danger')
+            elif len(password_baru) < 8:
+                flash('Password baru minimal harus 8 karakter!', 'danger')
+            elif password_baru == password_lama or password_baru.lower() == (user_data.get('username') or '').lower():
+                flash('Password baru tidak boleh sama dengan password lama atau NISN/username Anda!', 'danger')
             else:
                 try:
                     hashed_new_pw = generate_password_hash(password_baru)
                     cursor.execute("UPDATE users SET password = %s WHERE id = %s", (hashed_new_pw, user_id))
                     conn.commit()
+                    session.pop('wajib_ganti_pw', None)
                     flash('Password berhasil diganti! Gunakan password baru Anda saat login berikutnya.', 'success')
                 except mysql.connector.Error as e:
                     conn.rollback()
-                    flash(f'Gagal mengganti password: {e}', 'danger')
+                    print("[ERROR] " + "Gagal mengganti password" + ":", e)  # detail hanya di log server
+                    flash("Gagal mengganti password. Silakan coba lagi.", 'danger')
 
         cursor.close()
         conn.close()
@@ -880,9 +1211,10 @@ def profil():
 
     # REQUEST GET: Ambil Data Profil Siswa
     cursor.execute("""
-        SELECT s.*, u.nama, u.username 
-        FROM siswa s 
-        JOIN users u ON s.user_id = u.id 
+        SELECT s.*, u.nama, u.username, k.nama AS sekolah, k.nama AS nama_sekolah
+        FROM siswa s
+        JOIN users u ON s.user_id = u.id
+        LEFT JOIN sekolah k ON s.sekolah_id = k.id
         WHERE s.id = %s
     """, (siswa_id,))
     detail_siswa = cursor.fetchone()
@@ -942,7 +1274,8 @@ def daftar_siswa():
         siswa_list = cursor.fetchall()
 
     except mysql.connector.Error as e:
-        flash(f'Terjadi kesalahan saat mengambil data: {e}', 'danger')
+        print("[ERROR] " + "Terjadi kesalahan saat mengambil data" + ":", e)  # detail hanya di log server
+        flash("Terjadi kesalahan saat mengambil data. Silakan coba lagi.", 'danger')
         siswa_list = []
     finally:
         cursor.close()
@@ -1165,7 +1498,15 @@ def absensi():
                 return redirect(url_for('riwayat_absensi'))
             except Exception as e:
                 conn.rollback()
-                flash(f'Gagal memproses presensi: {e}', 'danger')
+                try:
+                    os.remove(filepath)   # jangan tinggalkan foto tanpa baris absensi
+                except Exception:
+                    pass
+                if getattr(e, 'errno', None) == 1062:   # duplikat (siswa_id, tanggal)
+                    flash('Presensi hari ini sudah tercatat.', 'warning')
+                else:
+                    print("[ERROR] " + "Gagal memproses presensi" + ":", e)  # detail hanya di log server
+                    flash("Gagal memproses presensi. Silakan coba lagi.", 'danger')
 
     cursor.execute("SELECT * FROM siswa WHERE id = %s", (siswa_id,))
     siswa = cursor.fetchone()
@@ -1195,83 +1536,96 @@ def riwayat_absensi():
         flash('Akses ditolak.', 'danger')
         return redirect(url_for('login'))
 
+    filter_tanggal = request.args.get('tanggal', '').strip()
+    filter_status = request.args.get('status', '').strip()
+    filter_nama = request.args.get('nama_siswa', '').strip()
+    if filter_status not in ('Hadir', 'Izin', 'Sakit', 'Alpa'):
+        filter_status = ''
+    if filter_tanggal:
+        try:
+            datetime.strptime(filter_tanggal, '%Y-%m-%d')
+        except ValueError:
+            filter_tanggal = ''
+
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
 
     if role == 'siswa':
-        siswa_id = session.get('siswa_id')
-        cursor.execute("""
-            SELECT
-                a.*,
-                TIME_FORMAT(a.created_at, '%H:%i') AS jam_absen
-            FROM absensi a
-            WHERE a.siswa_id = %s 
-            ORDER BY a.tanggal DESC
-        """, (siswa_id,))
-        
-        absensi_list = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return render_template('riwayat_absensi.html', absensi_list=absensi_list, is_pembimbing=False)
-
-    else:
-        filter_tanggal = request.args.get('tanggal', '').strip()
-        filter_status = request.args.get('status', '').strip()
-        filter_nama = request.args.get('nama_siswa', '').strip()
-
+        # Siswa hanya melihat presensinya sendiri (siswa_id diambil dari sesi, bukan dari URL).
         query = """
-            SELECT 
-                a.*, 
-                TIME_FORMAT(a.created_at, '%H:%i') AS jam_absen, 
-                u.nama AS nama_siswa, 
-                s.kelas_jurusan 
+            SELECT a.*, TIME_FORMAT(a.created_at, '%H:%i') AS jam_absen
             FROM absensi a
-            JOIN siswa s ON a.siswa_id = s.id
-            JOIN users u ON s.user_id = u.id
-            WHERE 1=1
+            WHERE a.siswa_id = %s
         """
-        params = []
-        sc, scp = scope_sekolah('s')
-        query += sc
-        params.extend(scp)
-
+        params = [session.get('siswa_id')]
         if filter_tanggal:
             query += " AND a.tanggal = %s"
             params.append(filter_tanggal)
         if filter_status:
             query += " AND a.status = %s"
             params.append(filter_status)
-        if filter_nama:
-            query += " AND u.nama LIKE %s"
-            params.append(f"%{filter_nama}%")
-
-        query += " ORDER BY a.tanggal DESC, u.nama ASC"
-
+        query += " ORDER BY a.tanggal DESC"
         cursor.execute(query, tuple(params))
         absensi_list = cursor.fetchall()
-
-        # Opsi daftar siswa + sisa kuota toleransi untuk Modal Absen Manual
-        cursor.execute("""
-            SELECT s.id, u.nama, s.nisn, s.kelas_jurusan,
-                   (1 - COUNT(CASE WHEN a.is_manual = 1 THEN 1 END)) AS sisa_toleransi
-            FROM siswa s
-            JOIN users u ON s.user_id = u.id
-            LEFT JOIN absensi a ON s.id = a.siswa_id
-            WHERE 1=1""" + sc + """
-            GROUP BY s.id, u.nama, s.nisn, s.kelas_jurusan
-            ORDER BY u.nama ASC
-        """, tuple(scp))
-        siswa_list = cursor.fetchall()
-
         cursor.close()
         conn.close()
-        return render_template('riwayat_absensi.html', 
-                               absensi_list=absensi_list, 
-                               is_pembimbing=True, 
-                               siswa_list=siswa_list,
-                               filter_tanggal=filter_tanggal,
-                               filter_status=filter_status,
-                               filter_nama=filter_nama)
+        return render_template('riwayat_absensi.html', absensi_list=absensi_list, is_pembimbing=False,
+                               filter_tanggal=filter_tanggal, filter_status=filter_status, filter_nama='')
+
+
+    query = """
+        SELECT 
+            a.*, 
+            TIME_FORMAT(a.created_at, '%H:%i') AS jam_absen, 
+            u.nama AS nama_siswa, 
+            s.kelas_jurusan 
+        FROM absensi a
+        JOIN siswa s ON a.siswa_id = s.id
+        JOIN users u ON s.user_id = u.id
+        WHERE 1=1
+    """
+    params = []
+    sc, scp = scope_sekolah('s')
+    query += sc
+    params.extend(scp)
+
+    if filter_tanggal:
+        query += " AND a.tanggal = %s"
+        params.append(filter_tanggal)
+    if filter_status:
+        query += " AND a.status = %s"
+        params.append(filter_status)
+    if filter_nama:
+        query += " AND u.nama LIKE %s"
+        params.append(f"%{filter_nama}%")
+
+    query += " ORDER BY a.tanggal DESC, u.nama ASC"
+
+    cursor.execute(query, tuple(params))
+    absensi_list = cursor.fetchall()
+
+    # Opsi daftar siswa + sisa kuota toleransi untuk Modal Absen Manual
+    cursor.execute("""
+        SELECT s.id, u.nama, s.nisn, s.kelas_jurusan,
+               (1 - COUNT(CASE WHEN a.is_manual = 1 THEN 1 END)) AS sisa_toleransi
+        FROM siswa s
+        JOIN users u ON s.user_id = u.id
+        LEFT JOIN absensi a ON s.id = a.siswa_id
+        WHERE 1=1""" + sc + """
+        GROUP BY s.id, u.nama, s.nisn, s.kelas_jurusan
+        ORDER BY u.nama ASC
+    """, tuple(scp))
+    siswa_list = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+    return render_template('riwayat_absensi.html', 
+                           absensi_list=absensi_list, 
+                           is_pembimbing=True, 
+                           siswa_list=siswa_list,
+                           filter_tanggal=filter_tanggal,
+                           filter_status=filter_status,
+                           filter_nama=filter_nama)
 
 
 
@@ -1514,7 +1868,8 @@ def laporan_tambah():
         except Exception as e:
             conn.rollback()
             print(f"[ERROR SAVE LAPORAN]: {e}")
-            flash(f'Terjadi kesalahan saat menyimpan laporan: {str(e)}', 'danger')
+            print("[ERROR] " + "Terjadi kesalahan saat menyimpan laporan" + ":", e)  # detail hanya di log server
+            flash("Terjadi kesalahan saat menyimpan laporan. Silakan coba lagi.", 'danger')
             return render_template('laporan_form.html', is_edit=False, today=today_str, is_terlambat=is_terlambat)
 
         finally:
@@ -1597,7 +1952,8 @@ def laporan_edit(laporan_id):
             return redirect(url_for('laporan'))
         except mysql.connector.Error as e:
             conn.rollback()
-            flash(f'Gagal mengupdate laporan: {e}', 'danger')
+            print("[ERROR] " + "Gagal mengupdate laporan" + ":", e)  # detail hanya di log server
+            flash("Gagal mengupdate laporan. Silakan coba lagi.", 'danger')
 
     cursor.close()
     conn.close()
@@ -1728,7 +2084,8 @@ def validasi_detail(laporan_id):
                 flash(f'Laporan harian berhasil diperbarui menjadi {action}!', 'success')
                 return redirect(url_for('validasi_laporan'))
             except mysql.connector.Error as e:
-                flash(f'Gagal memperbarui status laporan: {e}', 'danger')
+                print("[ERROR] " + "Gagal memperbarui status laporan" + ":", e)  # detail hanya di log server
+                flash("Gagal memperbarui status laporan. Silakan coba lagi.", 'danger')
 
 
     cursor.execute("""
@@ -1855,7 +2212,8 @@ def pengajuan_absensi():
             return redirect(url_for('pengajuan_absensi'))
         except mysql.connector.Error as e:
             conn.rollback()
-            flash(f'Gagal mengirim pengajuan: {e}', 'danger')
+            print("[ERROR] " + "Gagal mengirim pengajuan" + ":", e)  # detail hanya di log server
+            flash("Gagal mengirim pengajuan. Silakan coba lagi.", 'danger')
 
     cursor.execute("SELECT * FROM pengajuan_absensi WHERE siswa_id = %s ORDER BY created_at DESC", (siswa_id,))
     pengajuan_list = cursor.fetchall()
@@ -2052,7 +2410,8 @@ def proses_pengajuan(id, aksi):
 
         except mysql.connector.Error as e:
             conn.rollback()
-            flash(f'Terjadi kesalahan database: {e}', 'danger')
+            print("[ERROR] " + "Terjadi kesalahan database" + ":", e)  # detail hanya di log server
+            flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
 
     cursor.close()
     conn.close()
@@ -2115,7 +2474,8 @@ def tambah_siswa_page():
                         return redirect(url_for('daftar_siswa'))
                     except mysql.connector.Error as e:
                         conn.rollback()
-                        flash(f'Terjadi kesalahan saat menyimpan data: {e}', 'danger')
+                        print("[ERROR] " + "Terjadi kesalahan saat menyimpan data" + ":", e)  # detail hanya di log server
+                        flash("Terjadi kesalahan saat menyimpan data. Silakan coba lagi.", 'danger')
     finally:
         cursor.close()
         conn.close()
@@ -2159,7 +2519,8 @@ def reset_password_siswa(siswa_id):
 
     except mysql.connector.Error as e:
         conn.rollback()
-        flash(f'Gagal mereset password: {e}', 'danger')
+        print("[ERROR] " + "Gagal mereset password" + ":", e)  # detail hanya di log server
+        flash("Gagal mereset password. Silakan coba lagi.", 'danger')
     finally:
         cursor.close()
         conn.close()
@@ -2182,9 +2543,10 @@ def edit_siswa_page(siswa_id):
     cursor = conn.cursor(dictionary=True)
 
     cursor.execute("""
-        SELECT s.*, u.nama, u.username 
-        FROM siswa s 
-        JOIN users u ON s.user_id = u.id 
+        SELECT s.*, u.nama, u.username, k.nama AS sekolah, k.nama AS nama_sekolah
+        FROM siswa s
+        JOIN users u ON s.user_id = u.id
+        LEFT JOIN sekolah k ON s.sekolah_id = k.id
         WHERE s.id = %s
     """, (siswa_id,))
     siswa = cursor.fetchone()
@@ -2238,7 +2600,8 @@ def edit_siswa_page(siswa_id):
 
         except mysql.connector.Error as e:
             conn.rollback()
-            flash(f'Terjadi kesalahan database: {e}', 'danger')
+            print("[ERROR] " + "Terjadi kesalahan database" + ":", e)  # detail hanya di log server
+            flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
 
     cursor.close()
     conn.close()
@@ -2286,7 +2649,8 @@ def toggle_status_siswa(siswa_id):
 
     except mysql.connector.Error as e:
         conn.rollback()
-        flash(f'Gagal mengubah status siswa: {e}', 'danger')
+        print("[ERROR] " + "Gagal mengubah status siswa" + ":", e)  # detail hanya di log server
+        flash("Gagal mengubah status siswa. Silakan coba lagi.", 'danger')
     finally:
         cursor.close()
         conn.close()
@@ -2320,7 +2684,18 @@ def hapus_siswa(siswa_id):
 
         if siswa:
             user_id = siswa['user_id']
-            
+
+            # Catat dulu nama file foto/bukti milik siswa ini; dihapus dari disk setelah commit.
+            file_bukti, file_profil = set(), set()
+            for tabel, kolom in (('absensi', 'foto_bukti'), ('laporan_harian', 'foto_bukti'),
+                                 ('pengajuan_absensi', 'bukti_file')):
+                cursor.execute(f"SELECT {kolom} AS f FROM {tabel} WHERE siswa_id = %s AND {kolom} IS NOT NULL", (siswa_id,))
+                file_bukti.update(r['f'] for r in cursor.fetchall() if r['f'])
+            cursor.execute("SELECT foto_profil AS f FROM siswa WHERE id = %s", (siswa_id,))
+            baris_profil = cursor.fetchone()
+            if baris_profil and baris_profil['f']:
+                file_profil.add(baris_profil['f'])
+
             # 1. Hapus data terkait di tabel relasi terlebih dahulu
             cursor.execute("DELETE FROM absensi WHERE siswa_id = %s", (siswa_id,))
             cursor.execute("DELETE FROM laporan_harian WHERE siswa_id = %s", (siswa_id,))
@@ -2334,12 +2709,23 @@ def hapus_siswa(siswa_id):
             cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
             
             conn.commit()
+            _cache_akun.pop(user_id, None)   # sesi siswa ini langsung tidak berlaku
+
+            # Hapus juga berkas fotonya dari disk (data pribadi tidak boleh tertinggal).
+            for folder, daftar in ((app.config['UPLOAD_FOLDER'], file_bukti),
+                                   (app.config['UPLOAD_FOLDER_PROFIL'], file_profil)):
+                for nama_file in daftar:
+                    try:
+                        os.remove(os.path.join(folder, os.path.basename(nama_file)))
+                    except OSError:
+                        pass
             flash(f'Akun dan seluruh data siswa {siswa["nama"]} berhasil dihapus permanen dari sistem.', 'success')
         else:
             flash('Data siswa tidak ditemukan.', 'warning')
     except mysql.connector.Error as e:
         conn.rollback()
-        flash(f'Terjadi kesalahan saat menghapus data: {e}', 'danger')
+        print("[ERROR] " + "Terjadi kesalahan saat menghapus data" + ":", e)  # detail hanya di log server
+        flash("Terjadi kesalahan saat menghapus data. Silakan coba lagi.", 'danger')
     finally:
         cursor.close()
         conn.close()
@@ -2364,9 +2750,10 @@ def nilai_siswa_page(siswa_id):
     try:
         # 1. Ambil Data Profil Siswa
         cursor.execute("""
-            SELECT s.*, u.nama, u.username 
-            FROM siswa s 
-            JOIN users u ON s.user_id = u.id 
+            SELECT s.*, u.nama, u.username, k.nama AS sekolah, k.nama AS nama_sekolah
+            FROM siswa s
+            JOIN users u ON s.user_id = u.id
+            LEFT JOIN sekolah k ON s.sekolah_id = k.id
             WHERE s.id = %s
         """, (siswa_id,))
         siswa = cursor.fetchone()
@@ -2445,7 +2832,8 @@ def nilai_siswa_page(siswa_id):
 
     except mysql.connector.Error as e:
         conn.rollback()
-        flash(f'Terjadi kesalahan database: {e}', 'danger')
+        print("[ERROR] " + "Terjadi kesalahan database" + ":", e)  # detail hanya di log server
+        flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
         return redirect(url_for('daftar_siswa'))
     finally:
         cursor.close()
@@ -2458,6 +2846,297 @@ def nilai_siswa_page(siswa_id):
         nilai_absensi_auto=nilai_absensi_auto, 
         nilai_laporan_auto=nilai_laporan_auto
     )
+
+def hitung_nilai_akhir(n_absensi, n_laporan, n_sikap, n_teknis):
+    """Bobot sama dengan halaman nilai per siswa: 20% absensi, 20% laporan, 30% sikap, 30% teknis."""
+    akhir = round(n_absensi * 0.20 + n_laporan * 0.20 + n_sikap * 0.30 + n_teknis * 0.30, 2)
+    if akhir >= 85:
+        pred = 'A'
+    elif akhir >= 75:
+        pred = 'B'
+    elif akhir >= 65:
+        pred = 'C'
+    else:
+        pred = 'D'
+    return akhir, pred
+
+
+@app.route('/penilaian', methods=['GET', 'POST'])
+def penilaian_massal():
+    """Menilai banyak siswa sekaligus dalam satu tabel (sikap & teknis), lalu Simpan Semua."""
+    if not is_staff():
+        flash('Akses ditolak.', 'danger')
+        return redirect(url_for('login'))
+
+    sc, scp = scope_sekolah('s')
+    sumber = request.form if request.method == 'POST' else request.args
+    f_q = (sumber.get('q') or '').strip()
+    f_sekolah = sumber.get('sekolah', type=int)
+    f_status = sumber.get('status') or 'semua'
+
+    conn = get_db_connection()
+    if not conn:
+        flash('Gagal terhubung ke server database.', 'danger')
+        return redirect(url_for('dashboard_pembimbing'))
+    cursor = conn.cursor(dictionary=True)
+    try:
+        sql = """
+            SELECT s.id, s.nisn, s.kelas_jurusan, s.sekolah_id, u.nama, k.nama AS nama_sekolah,
+                   COALESCE(a.total, 0) AS total_hari, COALESCE(a.hadir, 0) AS hadir,
+                   COALESCE(l.acc, 0) AS laporan_acc,
+                   n.id AS nilai_id, n.nilai_sikap, n.nilai_teknis, n.nilai_akhir, n.predikat,
+                   n.catatan_pembimbing
+            FROM siswa s
+            JOIN users u ON s.user_id = u.id
+            LEFT JOIN sekolah k ON s.sekolah_id = k.id
+            LEFT JOIN (SELECT siswa_id, COUNT(*) AS total, SUM(status = 'Hadir') AS hadir
+                       FROM absensi GROUP BY siswa_id) a ON a.siswa_id = s.id
+            LEFT JOIN (SELECT siswa_id, COUNT(*) AS acc FROM laporan_harian
+                       WHERE status_validasi = 'Disetujui' GROUP BY siswa_id) l ON l.siswa_id = s.id
+            LEFT JOIN nilai_pkl n ON n.siswa_id = s.id
+            WHERE COALESCE(u.is_active, 1) <> 0""" + sc
+        params = list(scp)
+        if f_sekolah:
+            sql += " AND s.sekolah_id = %s"
+            params.append(f_sekolah)
+        if f_q:
+            sql += " AND (u.nama LIKE %s OR s.nisn LIKE %s OR s.kelas_jurusan LIKE %s)"
+            params += [f"%{f_q}%"] * 3
+        if f_status == 'belum':
+            sql += " AND n.id IS NULL"
+        elif f_status == 'sudah':
+            sql += " AND n.id IS NOT NULL"
+        sql += " ORDER BY u.nama"
+        cursor.execute(sql, tuple(params))
+        rows = cursor.fetchall()
+
+        for r in rows:
+            total = r['total_hari'] or 0
+            pembagi = total or 1
+            r['nilai_absensi'] = min(100.0, round(float(r['hadir'] or 0) / pembagi * 100, 2))
+            r['nilai_laporan'] = min(100.0, round(float(r['laporan_acc'] or 0) / pembagi * 100, 2))
+
+        if request.method == 'POST':
+            ids = {int(i) for i in request.form.get('ubah_ids', '').split(',') if i.strip().isdigit()}
+            # cari semua siswa dalam scope (bukan hanya yang terfilter) agar aman dari manipulasi id
+            cursor.execute("SELECT s.id FROM siswa s WHERE 1=1" + sc, tuple(scp))
+            diizinkan = {r['id'] for r in cursor.fetchall()}
+            terfilter = {r['id']: r for r in rows}
+            tersimpan, dilewati = 0, 0
+            for sid in ids:
+                r = terfilter.get(sid)
+                if sid not in diizinkan or r is None:
+                    dilewati += 1
+                    continue
+                try:
+                    sikap = int(request.form.get(f'sikap_{sid}', ''))
+                    teknis = int(request.form.get(f'teknis_{sid}', ''))
+                except ValueError:
+                    dilewati += 1
+                    continue
+                if not (0 <= sikap <= 100 and 0 <= teknis <= 100):
+                    dilewati += 1
+                    continue
+                catatan = (request.form.get(f'catatan_{sid}') or '').strip()[:1000]
+                akhir, pred = hitung_nilai_akhir(r['nilai_absensi'], r['nilai_laporan'], sikap, teknis)
+                if r['nilai_id']:
+                    cursor.execute("""
+                        UPDATE nilai_pkl SET nilai_absensi=%s, nilai_laporan=%s, nilai_sikap=%s, nilai_teknis=%s,
+                               nilai_akhir=%s, predikat=%s, catatan_pembimbing=%s, pembimbing_id=%s
+                        WHERE siswa_id=%s
+                    """, (r['nilai_absensi'], r['nilai_laporan'], sikap, teknis, akhir, pred, catatan,
+                          session['user_id'], sid))
+                else:
+                    cursor.execute("""
+                        INSERT INTO nilai_pkl (siswa_id, pembimbing_id, nilai_absensi, nilai_laporan, nilai_sikap,
+                                               nilai_teknis, nilai_akhir, predikat, catatan_pembimbing)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (sid, session['user_id'], r['nilai_absensi'], r['nilai_laporan'], sikap, teknis,
+                          akhir, pred, catatan))
+                tersimpan += 1
+            conn.commit()
+            if tersimpan:
+                flash(f'{tersimpan} siswa berhasil dinilai/diperbarui.' +
+                      (f' {dilewati} baris dilewati (nilai kosong atau di luar 0-100).' if dilewati else ''), 'success')
+            elif ids:
+                flash('Tidak ada nilai yang tersimpan. Isi nilai Sikap dan Teknis (0-100) pada baris yang diubah.', 'warning')
+            else:
+                flash('Tidak ada perubahan untuk disimpan.', 'info')
+            return redirect(url_for('penilaian_massal', q=f_q or None, sekolah=f_sekolah or None,
+                                    status=f_status if f_status != 'semua' else None))
+
+        sekolah_opsi = daftar_sekolah_boleh(cursor)
+    except mysql.connector.Error as e:
+        conn.rollback()
+        print("[ERROR] " + "Terjadi kesalahan database" + ":", e)  # detail hanya di log server
+        flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
+        return redirect(url_for('dashboard_pembimbing'))
+    finally:
+        cursor.close()
+        conn.close()
+
+    return render_template('penilaian.html', rows=rows, sekolah_opsi=sekolah_opsi,
+                           f_q=f_q, f_sekolah=f_sekolah, f_status=f_status)
+
+
+# Tempat PKL yang tercetak di PDF nilai (bisa diganti lewat env NAMA_PERUSAHAAN)
+NAMA_PERUSAHAAN = os.environ.get('NAMA_PERUSAHAAN', 'PT Media Naraya Cipta')
+
+
+@app.route('/nilai/<int:siswa_id>/pdf')
+def nilai_pkl_pdf(siswa_id):
+    """Unduh PDF Nilai Akhir PKL: identitas, rekap kehadiran, rincian nilai, nilai akhir & predikat.
+
+    Boleh diakses staf (sesuai scope sekolah) dan siswa yang bersangkutan.
+    """
+    if not is_logged_in():
+        return redirect(url_for('login'))
+    if session.get('role') == 'siswa':
+        if session.get('siswa_id') != siswa_id:
+            abort(403)
+    elif not is_staff() or not akses_siswa(siswa_id):
+        abort(403)
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT s.*, u.nama, k.nama AS nama_sekolah
+            FROM siswa s
+            JOIN users u ON s.user_id = u.id
+            LEFT JOIN sekolah k ON s.sekolah_id = k.id
+            WHERE s.id = %s
+        """, (siswa_id,))
+        siswa = cursor.fetchone()
+        if not siswa:
+            abort(404)
+        cursor.execute("""
+            SELECT n.*, pb.nama AS nama_penilai
+            FROM nilai_pkl n LEFT JOIN users pb ON n.pembimbing_id = pb.id
+            WHERE n.siswa_id = %s
+        """, (siswa_id,))
+        nilai = cursor.fetchone()
+        cursor.execute("""
+            SELECT COUNT(*) AS total,
+                   COALESCE(SUM(status = 'Hadir'), 0) AS hadir,
+                   COALESCE(SUM(status = 'Izin'), 0) AS izin,
+                   COALESCE(SUM(status = 'Sakit'), 0) AS sakit,
+                   COALESCE(SUM(status = 'Alpa'), 0) AS alpa
+            FROM absensi WHERE siswa_id = %s
+        """, (siswa_id,))
+        rekap = cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+    if not nilai:
+        flash('Siswa ini belum dinilai, sehingga PDF nilai belum tersedia.', 'warning')
+        return redirect(request.referrer or url_for('index'))
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    def f(v):
+        try:
+            v = float(v)
+            return str(int(v)) if v == int(v) else f"{v:.2f}"
+        except (TypeError, ValueError):
+            return '-'
+
+    ss = getSampleStyleSheet()
+    judul = ParagraphStyle('judul', parent=ss['Title'], fontSize=16, leading=20, spaceAfter=2)
+    sub = ParagraphStyle('sub', parent=ss['Normal'], fontSize=10, alignment=1, textColor=colors.HexColor('#555555'))
+    h2 = ParagraphStyle('h2', parent=ss['Heading3'], fontSize=11, spaceBefore=14, spaceAfter=6)
+    normal = ParagraphStyle('n', parent=ss['Normal'], fontSize=10, leading=14)
+    BIRU = colors.HexColor('#1e3a8a')
+    ABU = colors.HexColor('#e5e7eb')
+
+    def tabel(data, widths, header=True, align_right_cols=()):
+        t = Table(data, colWidths=widths)
+        gaya = [('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#9ca3af')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5)]
+        if header:
+            gaya += [('BACKGROUND', (0, 0), (-1, 0), BIRU), ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold')]
+        for c in align_right_cols:
+            gaya.append(('ALIGN', (c, 0), (c, -1), 'CENTER'))
+        t.setStyle(TableStyle(gaya))
+        return t
+
+    mulai, selesai = siswa.get('tgl_mulai_pkl'), siswa.get('tgl_selesai_pkl')
+    periode = f"{tgl_indo(mulai)} s.d. {tgl_indo(selesai)}" if mulai and selesai else '-'
+
+    el = [Paragraph('LAPORAN NILAI AKHIR PKL', judul),
+          Paragraph(f'Praktik Kerja Lapangan (PKL) di {NAMA_PERUSAHAAN}', sub), Spacer(1, 14)]
+
+    ident = [['Nama', ':', siswa['nama']], ['NISN', ':', siswa.get('nisn') or '-'],
+             ['Kelas / Jurusan', ':', siswa.get('kelas_jurusan') or '-'],
+             ['Asal Sekolah', ':', siswa.get('nama_sekolah') or '-'],
+             ['Tempat PKL', ':', NAMA_PERUSAHAAN], ['Periode PKL', ':', periode]]
+    t = Table([[a, b, Paragraph(str(c), normal)] for a, b, c in ident], colWidths=[3.6*cm, 0.5*cm, 12.9*cm])
+    t.setStyle(TableStyle([('FONTSIZE', (0, 0), (-1, -1), 10), ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                           ('BOTTOMPADDING', (0, 0), (-1, -1), 3), ('TOPPADDING', (0, 0), (-1, -1), 3)]))
+    el.append(t)
+
+    el.append(Paragraph('Rekap Kehadiran', h2))
+    pct = (rekap['hadir'] / rekap['total'] * 100) if rekap['total'] else 0
+    el.append(tabel([['Hadir', 'Izin', 'Sakit', 'Alpa', 'Total Hari', 'Persentase Hadir'],
+                     [f(rekap['hadir']), f(rekap['izin']), f(rekap['sakit']), f(rekap['alpa']),
+                      f(rekap['total']), f"{pct:.1f}%"]],
+                    [2.5*cm, 2.5*cm, 2.5*cm, 2.5*cm, 2.8*cm, 4.2*cm], align_right_cols=range(6)))
+
+    el.append(Paragraph('Rincian Nilai', h2))
+    rows = [['No', 'Komponen Penilaian', 'Bobot', 'Nilai'],
+            ['1', 'Kehadiran (otomatis)', '20%', f(nilai['nilai_absensi'])],
+            ['2', 'Laporan Harian (otomatis)', '20%', f(nilai['nilai_laporan'])],
+            ['3', 'Sikap & Kedisiplinan', '30%', f(nilai['nilai_sikap'])],
+            ['4', 'Kemampuan Teknis', '30%', f(nilai['nilai_teknis'])],
+            ['', 'NILAI AKHIR', '100%', f(nilai['nilai_akhir'])]]
+    t = tabel(rows, [1.2*cm, 9.3*cm, 3*cm, 3.5*cm], align_right_cols=(0, 2, 3))
+    t.setStyle(TableStyle([('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'), ('BACKGROUND', (0, -1), (-1, -1), ABU)]))
+    el.append(t)
+
+    el.append(Spacer(1, 12))
+    pred = Table([['PREDIKAT', nilai['predikat']]], colWidths=[5*cm, 3*cm], rowHeights=[1.4*cm])
+    pred.setStyle(TableStyle([('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (0, 0), 11),
+                              ('FONTSIZE', (1, 0), (1, 0), 20), ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                              ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('BOX', (0, 0), (-1, -1), 1, BIRU),
+                              ('BACKGROUND', (0, 0), (0, 0), ABU), ('TOPPADDING', (0, 0), (-1, -1), 8),
+                              ('BOTTOMPADDING', (0, 0), (-1, -1), 8)]))
+    pred.hAlign = 'CENTER'
+    el.append(pred)
+    el.append(Paragraph('Keterangan predikat: A (85-100) Sangat Baik, B (75-84) Baik, C (65-74) Cukup, D (&lt;65) Kurang.',
+                        ParagraphStyle('ket', parent=normal, fontSize=8, textColor=colors.HexColor('#555555'), spaceBefore=6)))
+
+    catatan = (nilai.get('catatan_pembimbing') or '').strip()
+    if catatan:
+        el.append(Paragraph('Catatan Pembimbing', h2))
+        from xml.sax.saxutils import escape
+        el.append(Paragraph(escape(catatan).replace('\n', '<br/>'), normal))
+
+    sekarang = now_wib()
+    ttd = Table([[f"Dicetak: {tgl_indo(sekarang.date())}"],
+                 ['Pembimbing Industri'], [NAMA_PERUSAHAAN], [''], [''],
+                 [nilai.get('nama_penilai') or '(................................)']],
+                colWidths=[7*cm])
+    ttd.setStyle(TableStyle([('FONTSIZE', (0, 0), (-1, -1), 10), ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                             ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold')]))
+    wrap = Table([['', ttd]], colWidths=[10*cm, 7*cm])
+    el.extend([Spacer(1, 28), wrap])
+
+    buf = io.BytesIO()
+    SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm,
+                      title=f"Nilai Akhir PKL - {siswa['nama']}").build(el)
+    buf.seek(0)
+    nama_file = re.sub(r'[^A-Za-z0-9_-]+', '_', siswa['nama']).strip('_') or 'siswa'
+    return send_file(buf, mimetype='application/pdf', as_attachment=True,
+                     download_name=f"Nilai_PKL_{nama_file}.pdf")
+
 
 @app.route('/pembimbing/profil', methods=['GET'])
 def profil_pembimbing():
@@ -2484,7 +3163,8 @@ def profil_pembimbing():
         pembimbing_data = cursor.fetchone()
 
     except mysql.connector.Error as e:
-        flash(f'Terjadi kesalahan database: {e}', 'danger')
+        print("[ERROR] " + "Terjadi kesalahan database" + ":", e)  # detail hanya di log server
+        flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
         pembimbing_data = None
     finally:
         cursor.close()
@@ -2523,7 +3203,8 @@ def update_profil_pembimbing():
             flash('Profil Administrator berhasil diperbarui!', 'success')
         except mysql.connector.Error as e:
             conn.rollback()
-            flash(f'Gagal memperbarui profil: {e}', 'danger')
+            print("[ERROR] " + "Gagal memperbarui profil" + ":", e)  # detail hanya di log server
+            flash("Gagal memperbarui profil. Silakan coba lagi.", 'danger')
         finally:
             cursor.close()
             conn.close()
@@ -2560,7 +3241,8 @@ def update_profil_pembimbing():
 
     except mysql.connector.Error as e:
         conn.rollback()
-        flash(f'Gagal memperbarui profil: {e}', 'danger')
+        print("[ERROR] " + "Gagal memperbarui profil" + ":", e)  # detail hanya di log server
+        flash("Gagal memperbarui profil. Silakan coba lagi.", 'danger')
     finally:
         cursor.close()
         conn.close()
@@ -2875,7 +3557,8 @@ def dashboard_admin():
         """)
         per_sekolah = cursor.fetchall()
     except mysql.connector.Error as e:
-        flash(f'Gagal memuat data: {e}', 'danger')
+        print("[ERROR] " + "Gagal memuat data" + ":", e)  # detail hanya di log server
+        flash("Gagal memuat data. Silakan coba lagi.", 'danger')
         ringkasan, per_sekolah = {}, []
     finally:
         cursor.close()
@@ -2916,8 +3599,6 @@ def admin_sekolah():
                     else:
                         cursor.execute("UPDATE sekolah SET nama = %s, npsn = %s, alamat = %s WHERE id = %s",
                                        (nama, npsn, alamat, sekolah_id))
-                        # sinkronkan teks nama sekolah yang dipakai di tampilan siswa
-                        cursor.execute("UPDATE siswa SET sekolah = %s WHERE sekolah_id = %s", (nama, sekolah_id))
                         conn.commit()
                         flash('Data sekolah berhasil diperbarui.', 'success')
                 elif aksi == 'hapus' and sekolah_id:
@@ -2936,7 +3617,8 @@ def admin_sekolah():
                     flash('Aksi tidak valid.', 'danger')
             except mysql.connector.Error as e:
                 conn.rollback()
-                flash(f'Terjadi kesalahan database: {e}', 'danger')
+                print("[ERROR] " + "Terjadi kesalahan database" + ":", e)  # detail hanya di log server
+                flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
             return redirect(url_for('admin_sekolah'))
 
         cursor.execute("""
@@ -3010,7 +3692,8 @@ def admin_libur():
                     flash('Aksi tidak valid.', 'danger')
             except mysql.connector.Error as e:
                 conn.rollback()
-                flash(f'Terjadi kesalahan database: {e}', 'danger')
+                print("[ERROR] " + "Terjadi kesalahan database" + ":", e)  # detail hanya di log server
+                flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
             return redirect(url_for('admin_libur'))
 
         cursor.execute("""
@@ -3111,7 +3794,8 @@ def admin_pembimbing():
                     flash('Aksi tidak valid.', 'danger')
             except mysql.connector.Error as e:
                 conn.rollback()
-                flash(f'Terjadi kesalahan database: {e}', 'danger')
+                print("[ERROR] " + "Terjadi kesalahan database" + ":", e)  # detail hanya di log server
+                flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
             return redirect(url_for('admin_pembimbing'))
 
         cursor.execute("""
@@ -3170,7 +3854,8 @@ def admin_bimbingan(user_id):
                 flash(f"Siswa bimbingan {pembimbing['nama']} berhasil disimpan.", 'success')
             except mysql.connector.Error as e:
                 conn.rollback()
-                flash(f'Terjadi kesalahan database: {e}', 'danger')
+                print("[ERROR] " + "Terjadi kesalahan database" + ":", e)  # detail hanya di log server
+                flash("Terjadi kesalahan database. Silakan coba lagi.", 'danger')
             return redirect(url_for('admin_bimbingan', user_id=user_id))
 
         cursor.execute("""

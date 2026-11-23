@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+
+# Virtual Environment
+.venv/
+venv/
+
+# Rahasia / environment (JANGAN pernah di-commit)
+.env
+.env.*
+*.pem
+*.key
+
+# IDE
+.vscode/
+.idea/
+
+# Data pribadi pengguna (foto profil, bukti, dll.)
+uploads/*
+static/uploads/
+
+# Dump database BERISI DATA (pakai db_jurnal_pkl_schema.sql yang hanya skema)
+db_jurnal_pkl.sql
+db_jurnal_pkl_railway.sql
+*.dump
+*.bak
+
+# Arsip / berkas sampah
+*.zip
+*.log
+.DS_Store

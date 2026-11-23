@@ -44,6 +44,12 @@
     --danger-border: #fecaca;
     --danger-text: #991b1b;
 
+    --success-hover: #059669;
+    --danger-hover: #dc2626;
+    --warning-hover: #d97706;
+    --accent-blue: #2563eb;
+    --accent-purple: #7c3aed;
+
     --info: #3b82f6;
     --info-bg: #eff6ff;
     --info-border: #bfdbfe;
@@ -74,6 +80,7 @@
 
     --transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     --sidebar-width: 260px;
+    --navbar-h: 68px;
 }
 
 * {
@@ -194,52 +201,6 @@ body {
     background-color: #6d28d9;
 }
 
-/* Specific Alias Classes for Compatibility */
-.btn-search-action {
-    background-color: var(--primary);
-    color: #ffffff;
-}
-.btn-search-action:hover {
-    background-color: var(--primary-hover);
-}
-
-.btn-reset-action {
-    background-color: var(--surface);
-    color: var(--text-secondary);
-    border: 1px solid var(--border);
-}
-.btn-reset-action:hover {
-    background-color: var(--surface-hover);
-    color: var(--text);
-    border-color: var(--border-strong);
-}
-
-.btn-table-action {
-    padding: 6px 12px;
-    font-size: var(--text-xs);
-    font-weight: 600;
-    border-radius: var(--radius-sm);
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: var(--transition);
-    box-shadow: var(--shadow-xs);
-    border: 1px solid transparent;
-    cursor: pointer;
-    color: #ffffff;
-    white-space: nowrap;
-}
-.btn-table-action:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-sm);
-    opacity: 0.92;
-}
-
-.btn-action-detail { background-color: var(--primary); }
-.btn-action-edit { background-color: #2563eb; }
-.btn-action-nilai { background-color: #7c3aed; }
-.btn-action-hapus { background-color: var(--danger); border: none; }
 
 .btn-logout-nav {
     display: inline-flex;
@@ -295,6 +256,212 @@ body {
     background-color: var(--surface-hover);
 }
 
+/* =========================================================
+   SISTEM TOMBOL TERPADU
+   Satu sumber untuk semua tombol di seluruh halaman. Jangan definisikan
+   ulang .btn-* / .adm-btn di <style> template; pakai kelas varian di bawah.
+   Varian warna : -primary  -secondary  -success  -danger  -warning
+   Ukuran kecil : .btn-sm  (atau kelas aksi tabel: .btn-table-action, .btn-mini)
+   ========================================================= */
+.btn-action-primary, .btn-action-secondary, .btn-action-success, .btn-action-danger,
+.btn-action-warning, .btn-action-custom, .btn-action, .btn-search-action, .btn-reset-action,
+.btn-submit, .btn-save-all, .btn-cancel, .btn-alert-action, .btn-home, .btn-acc, .btn-reject,
+.btn-approve, .btn-revise, .btn-mini, .btn-table-action, .adm-btn, .btn-warning, .btn-capture,
+.btn-submit-absensi {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 18px;
+    font-family: inherit;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    line-height: 1.4;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    box-shadow: var(--shadow-xs);
+    transition: var(--transition);
+    background-color: var(--primary);
+    color: #ffffff;
+}
+
+/* Hover & fokus seragam */
+.btn-action-primary:hover, .btn-action-secondary:hover, .btn-action-success:hover,
+.btn-action-danger:hover, .btn-action-warning:hover, .btn-action-custom:hover, .btn-action:hover,
+.btn-search-action:hover, .btn-reset-action:hover, .btn-submit:hover, .btn-save-all:hover,
+.btn-cancel:hover, .btn-alert-action:hover, .btn-home:hover, .btn-acc:hover, .btn-reject:hover,
+.btn-approve:hover, .btn-revise:hover, .btn-mini:hover, .btn-table-action:hover, .adm-btn:hover,
+.btn-warning:hover, .btn-capture:hover, .btn-submit-absensi:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
+.btn-action-primary:active, .btn-action-secondary:active, .btn-action-success:active,
+.btn-action-danger:active, .btn-action-warning:active, .btn-action-custom:active, .btn-action:active,
+.btn-search-action:active, .btn-reset-action:active, .btn-submit:active, .btn-save-all:active,
+.btn-cancel:active, .btn-alert-action:active, .btn-home:active, .btn-acc:active, .btn-reject:active,
+.btn-approve:active, .btn-revise:active, .btn-mini:active, .btn-table-action:active, .adm-btn:active,
+.btn-warning:active, .btn-capture:active, .btn-submit-absensi:active {
+    transform: translateY(0);
+}
+.btn:focus-visible, .btn-action-primary:focus-visible, .btn-action-secondary:focus-visible,
+.btn-action-success:focus-visible, .btn-action-danger:focus-visible, .btn-action-warning:focus-visible,
+.btn-action-custom:focus-visible, .btn-action:focus-visible, .btn-search-action:focus-visible,
+.btn-reset-action:focus-visible, .btn-submit:focus-visible, .btn-save-all:focus-visible,
+.btn-cancel:focus-visible, .btn-alert-action:focus-visible, .btn-home:focus-visible,
+.btn-acc:focus-visible, .btn-reject:focus-visible, .btn-approve:focus-visible,
+.btn-revise:focus-visible, .btn-mini:focus-visible, .btn-table-action:focus-visible,
+.adm-btn:focus-visible, .btn-warning:focus-visible, .btn-capture:focus-visible,
+.btn-submit-absensi:focus-visible, .btn-notification-bell:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+/* Primary (indigo) */
+.btn-action-primary, .btn-search-action, .btn-submit, .btn-save-all, .btn-home, .btn-capture,
+.adm-btn.primary, .btn-action-custom {
+    background-color: var(--primary);
+    color: #ffffff;
+    border-color: transparent;
+}
+.btn-action-primary:hover, .btn-search-action:hover, .btn-submit:hover, .btn-save-all:hover,
+.btn-home:hover, .btn-capture:hover, .adm-btn.primary:hover, .btn-action-custom:hover {
+    background-color: var(--primary-hover);
+}
+
+/* Secondary (putih, bergaris) */
+.btn-action-secondary, .btn-reset-action, .btn-cancel, .btn-mini, .adm-btn {
+    background-color: var(--surface);
+    color: var(--text-secondary);
+    border-color: var(--border);
+}
+.btn-action-secondary:hover, .btn-reset-action:hover, .btn-cancel:hover, .btn-mini:hover, .adm-btn:hover {
+    background-color: var(--surface-hover);
+    color: var(--text);
+    border-color: var(--border-strong);
+}
+
+/* Success (hijau) */
+.btn-action-success, .btn-acc, .btn-approve, .btn-submit-absensi {
+    background-color: var(--success);
+    color: #ffffff;
+    border-color: transparent;
+}
+.btn-action-success:hover, .btn-acc:hover, .btn-approve:hover, .btn-submit-absensi:hover {
+    background-color: var(--success-hover);
+}
+
+/* Danger (merah) */
+.btn-action-danger, .btn-reject, .btn-revise, .adm-btn.danger {
+    background-color: var(--danger);
+    color: #ffffff;
+    border-color: transparent;
+}
+.btn-action-danger:hover, .btn-reject:hover, .btn-revise:hover, .adm-btn.danger:hover {
+    background-color: var(--danger-hover);
+    color: #ffffff;
+    border-color: transparent;
+}
+.btn-mini-danger {
+    background-color: var(--danger-bg);
+    color: var(--danger-text);
+    border-color: var(--danger-border);
+}
+.btn-mini-danger:hover {
+    background-color: var(--danger);
+    color: #ffffff;
+    border-color: var(--danger);
+}
+
+/* Warning (kuning/oranye) */
+.btn-action-warning, .btn-warning, .btn-alert-action {
+    background-color: var(--warning);
+    color: #ffffff;
+    border-color: transparent;
+}
+.btn-action-warning:hover, .btn-warning:hover, .btn-alert-action:hover {
+    background-color: var(--warning-hover);
+}
+
+/* Ukuran kecil: aksi di dalam tabel / baris */
+.btn-table-action, .btn-acc, .btn-reject, .btn-mini {
+    padding: 6px 12px;
+    font-size: var(--text-xs);
+}
+.btn-acc + .btn-reject { margin-left: 6px; }
+
+/* Tombol penuh lebar di formulir: submit + batal */
+.btn-submit {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: var(--text-base);
+    font-weight: 700;
+}
+.btn-submit ~ .btn-cancel { width: 100%; margin-top: 12px; padding: 12px 16px; font-size: var(--text-base); }
+
+/* Dinonaktifkan */
+.btn:disabled, .btn-submit:disabled, .btn-save-all:disabled, .btn-action-primary:disabled,
+.btn-action-success:disabled, .btn-action-danger:disabled, .btn-capture:disabled,
+.btn-submit-absensi:disabled, .btn-disabled {
+    background-color: var(--text-faint) !important;
+    color: #ffffff !important;
+    border-color: transparent !important;
+    cursor: not-allowed !important;
+    box-shadow: none !important;
+    transform: none !important;
+    opacity: 0.7;
+}
+.btn-disabled { pointer-events: none; }
+
+/* Tautan "kembali" (teks, bukan kotak) */
+.btn-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: var(--text-base);
+    transition: var(--transition);
+}
+.btn-back:hover { color: var(--primary); }
+.content > .btn-back { margin-bottom: 20px; }
+
+/* Lonceng notifikasi */
+.btn-notification-bell {
+    background-color: var(--surface);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    width: 38px;
+    height: 38px;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition);
+    position: relative; /* jangkar lencana angka notifikasi */
+}
+.btn-notification-bell:hover {
+    background-color: var(--primary-50);
+    color: var(--primary);
+    border-color: var(--primary-200);
+}
+
+/* Pengelompok tombol */
+.btn-group { display: flex; justify-content: flex-end; gap: 12px; margin-top: 28px; }
+.btn-group-action { display: flex; gap: 12px; }
+.btn-action { flex: 1; padding: 12px 18px; }
+
+/* Kartu aksi seragam untuk .btn-action-* lama di tabel (warna per aksi) */
+.btn-action-detail { background-color: var(--primary); }
+.btn-action-edit { background-color: var(--accent-blue); }
+.btn-action-nilai { background-color: var(--accent-purple); }
+.btn-action-hapus { background-color: var(--danger); border: none; }
+
+
 /* ================= FORMS & ALERTS ================= */
 .form-group {
     margin-bottom: 18px;
@@ -335,37 +502,45 @@ input:focus, select:focus, textarea:focus {
     box-shadow: var(--focus-ring);
 }
 
+/* =========================================================
+   FLASH / ALERT TERPADU  ({{ category }}: success, danger, warning, info)
+   Satu tampilan untuk semua halaman; aksen garis kiri menandai jenis pesan.
+   ========================================================= */
 .alert {
     padding: 14px 16px;
     border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    border-left-width: 4px;
     font-size: var(--text-sm);
     font-weight: 500;
+    line-height: 1.5;
     margin-bottom: 20px;
-    border: 1px solid transparent;
+    word-break: break-word;
+    box-shadow: var(--shadow-xs);
 }
-
 .alert-danger, .alert-error {
     background-color: var(--danger-bg);
     color: var(--danger-text);
     border-color: var(--danger-border);
+    border-left-color: var(--danger);
 }
-
 .alert-success {
     background-color: var(--success-bg);
     color: var(--success-text);
     border-color: var(--success-border);
+    border-left-color: var(--success);
 }
-
 .alert-warning {
     background-color: var(--warning-bg);
     color: var(--warning-text);
     border-color: var(--warning-border);
+    border-left-color: var(--warning);
 }
-
-.alert-info {
+.alert-info, .alert-message {
     background-color: var(--info-bg);
     color: var(--info-text);
     border-color: var(--info-border);
+    border-left-color: var(--info);
 }
 
 /* ================= SIDEBAR LAYOUT ================= */

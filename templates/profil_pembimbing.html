@@ -129,27 +129,7 @@
             color: var(--text-muted);
             cursor: not-allowed;
         }
-        .btn-action-custom {
-            padding: 10px 22px;
-            font-size: var(--text-sm);
-            font-weight: 600;
-            border-radius: var(--radius-sm);
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            transition: var(--transition);
-            box-shadow: var(--shadow-xs);
-            border: 1px solid transparent;
-            cursor: pointer;
-            white-space: nowrap;
-        }
-        .btn-action-custom:hover {
-            transform: translateY(-1px);
-            box-shadow: var(--shadow-sm);
-            opacity: 0.92;
-        }
+
         @media (max-width: 768px) {
             .profile-container {
                 grid-template-columns: 1fr;
@@ -248,6 +228,8 @@
                         </li>
                     </ul>
                 </div>
+
+                {% include '_sidebar_penilaian.html' %}
             </div>
         </div>
     </div>
@@ -283,7 +265,7 @@
             {% with messages = get_flashed_messages(with_categories=true) %}
               {% if messages %}
                 {% for category, message in messages %}
-                  <div class="alert alert-{{ category }}">{{ message }}</div>
+                  <div class="alert alert-{{ category }}" role="alert">{{ message }}</div>
                 {% endfor %}
               {% endif %}
             {% endwith %}
@@ -376,7 +358,7 @@
                         </div>
 
                         <div style="display: flex; justify-content: flex-end; margin-top: 24px;">
-                            <button type="submit" class="btn-action-custom" style="background-color: var(--primary); color: #ffffff; border: none;">Simpan Profil</button>
+                            <button type="submit" class="btn-action-primary">Simpan Profil</button>
                         </div>
                     </form>
                 </div>

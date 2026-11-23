@@ -15,6 +15,8 @@ import mysql.connector
 from flask import (Blueprint, abort, flash, redirect, render_template, request,
                    session, url_for)
 
+from werkzeug.security import check_password_hash, generate_password_hash
+
 from waktu import sekarang_wib
 from config import get_db_connection
 
@@ -44,6 +46,16 @@ def _punya_siswa(cursor, siswa_id):
         "SELECT 1 FROM siswa s WHERE s.id = %s AND s.pembimbing_pkl_id = %s LIMIT 1",
         (siswa_id, _uid()))
     return cursor.fetchone() is not None
+
+
+def _sekolah_saya(cursor):
+    """Data sekolah asal akun pembimbing PKL yang sedang login (None bila belum dikaitkan)."""
+    cursor.execute("""
+        SELECT k.id, k.nama, k.npsn, k.alamat
+        FROM users u JOIN sekolah k ON u.sekolah_id = k.id
+        WHERE u.id = %s
+    """, (_uid(),))
+    return cursor.fetchone()
 
 
 def _db():
@@ -109,9 +121,11 @@ def dashboard():
             ORDER BY u.nama ASC
         """, (hari_ini, _uid()))
         hari_ini_list = cursor.fetchall()
+        sekolah = _sekolah_saya(cursor)
     except mysql.connector.Error as e:
-        flash(f'Gagal memuat data: {e}', 'danger')
-        total_siswa, laporan_pending, hari_ini_list = 0, 0, []
+        print("[ERROR] " + "Gagal memuat data" + ":", e)  # detail hanya di log server
+        flash("Gagal memuat data. Silakan coba lagi.", 'danger')
+        total_siswa, laporan_pending, hari_ini_list, sekolah = 0, 0, [], None
     finally:
         cursor.close()
         conn.close()
@@ -122,7 +136,58 @@ def dashboard():
 
     return render_template('pkl/dashboard.html', total_siswa=total_siswa,
                            laporan_pending=laporan_pending, rekap=rekap,
-                           hari_ini_list=hari_ini_list, hari_ini=hari_ini)
+                           hari_ini_list=hari_ini_list, hari_ini=hari_ini, sekolah=sekolah)
+
+
+# ------------------------------------------------------------------ profil
+@pkl_bp.route('/profil', methods=['GET', 'POST'])
+@pkl_required
+def profil():
+    conn, cursor = _db()
+    if not conn:
+        return redirect(url_for('pkl.dashboard'))
+    try:
+        if request.method == 'POST':
+            lama = request.form.get('password_lama', '').strip()
+            baru = request.form.get('password_baru', '').strip()
+            konfirmasi = request.form.get('konfirmasi_password', '').strip()
+
+            cursor.execute("SELECT password, username FROM users WHERE id = %s", (_uid(),))
+            akun = cursor.fetchone()
+
+            if not akun or not check_password_hash(akun['password'], lama):
+                flash('Password lama yang Anda masukkan salah!', 'danger')
+            elif baru != konfirmasi:
+                flash('Konfirmasi password baru tidak cocok!', 'danger')
+            elif len(baru) < 8:
+                flash('Password baru minimal harus 8 karakter!', 'danger')
+            elif baru == lama or baru.lower() == (akun.get('username') or '').lower():
+                flash('Password baru tidak boleh sama dengan password lama atau username Anda!', 'danger')
+            else:
+                try:
+                    cursor.execute("UPDATE users SET password = %s WHERE id = %s",
+                                   (generate_password_hash(baru), _uid()))
+                    conn.commit()
+                    flash('Password berhasil diganti! Gunakan password baru saat login berikutnya.', 'success')
+                except mysql.connector.Error as e:
+                    conn.rollback()
+                    print("[ERROR] " + "Gagal mengganti password" + ":", e)  # detail hanya di log server
+                    flash("Gagal mengganti password. Silakan coba lagi.", 'danger')
+            return redirect(url_for('pkl.profil'))
+
+        cursor.execute("SELECT id, username, nama, created_at FROM users WHERE id = %s", (_uid(),))
+        akun = cursor.fetchone()
+        sekolah = _sekolah_saya(cursor)
+        cursor.execute("SELECT COUNT(*) AS n FROM siswa WHERE pembimbing_pkl_id = %s", (_uid(),))
+        total_siswa = cursor.fetchone()['n']
+    except mysql.connector.Error as e:
+        print("[ERROR] " + "Gagal memuat profil" + ":", e)  # detail hanya di log server
+        flash("Gagal memuat profil. Silakan coba lagi.", 'danger')
+        return redirect(url_for('pkl.dashboard'))
+    finally:
+        cursor.close()
+        conn.close()
+    return render_template('pkl/profil.html', akun=akun, sekolah=sekolah, total_siswa=total_siswa)
 
 
 # ------------------------------------------------------------------- siswa
@@ -159,7 +224,8 @@ def siswa():
         cursor.execute(sql, tuple(params))
         siswa_list = cursor.fetchall()
     except mysql.connector.Error as e:
-        flash(f'Terjadi kesalahan saat mengambil data: {e}', 'danger')
+        print("[ERROR] " + "Terjadi kesalahan saat mengambil data" + ":", e)  # detail hanya di log server
+        flash("Terjadi kesalahan saat mengambil data. Silakan coba lagi.", 'danger')
         siswa_list = []
     finally:
         cursor.close()
@@ -320,7 +386,8 @@ def absensi():
         cursor.execute(sql, tuple(params))
         absensi_list = cursor.fetchall()
     except mysql.connector.Error as e:
-        flash(f'Terjadi kesalahan saat mengambil data: {e}', 'danger')
+        print("[ERROR] " + "Terjadi kesalahan saat mengambil data" + ":", e)  # detail hanya di log server
+        flash("Terjadi kesalahan saat mengambil data. Silakan coba lagi.", 'danger')
         absensi_list = []
     finally:
         cursor.close()

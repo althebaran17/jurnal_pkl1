@@ -7,9 +7,15 @@
     <div class="hd">Informasi Akun Pemantau</div>
     <div class="bd">
         <p style="color: var(--text-secondary); margin: 0; line-height: 1.6;">
-            Halo <strong>{{ session.get('nama') }}</strong>, Anda masuk sebagai <strong>Pembimbing PKL</strong>.
+            Halo <strong>{{ session.get('nama') }}</strong>, Anda masuk sebagai <strong>Pembimbing PKL</strong>
+            {% if sekolah %}dari <strong>{{ sekolah.nama }}</strong>{% endif %}.
             Halaman ini hanya menampilkan siswa yang ditetapkan sebagai bimbingan Anda, dalam mode <em>read-only</em>.
         </p>
+        {% if sekolah %}
+        <p style="margin: 12px 0 0;"><span class="chip hadir">Sekolah: {{ sekolah.nama }}</span></p>
+        {% else %}
+        <p style="margin: 12px 0 0;"><span class="chip pending">Sekolah belum ditetapkan. Hubungi Admin.</span></p>
+        {% endif %}
     </div>
 </div>
 
@@ -54,6 +60,7 @@
         <a href="{{ url_for('pkl.siswa') }}" class="adm-btn primary">Daftar Siswa Bimbingan</a>
         <a href="{{ url_for('pkl.laporan') }}" class="adm-btn">Laporan Harian</a>
         <a href="{{ url_for('pkl.absensi') }}" class="adm-btn">Riwayat Absensi</a>
+        <a href="{{ url_for('pkl.profil') }}" class="adm-btn">Profil Saya</a>
     </div>
 </div>
 {% endblock %}

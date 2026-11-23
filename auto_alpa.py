@@ -45,6 +45,12 @@ INTERVAL_DETIK = 60
 # hari-hari lampau yang belum tercatat).
 SUSULKAN_HARI_LAMPAU = True
 
+# Siswa yang tgl_mulai_pkl-nya KOSONG: dulu hanya "hari ini" yang dihitung (hari lampau tidak
+# pernah disusul), sehingga Alpa hanya tercatat di sebagian akun. Sekarang hitungan dimulai
+# dari hari pertama akunnya bisa absen (tanggal akun dibuat), dibatasi MAKS hari ke belakang.
+FALLBACK_MULAI_DARI_AKUN = True
+MAKS_HARI_SUSUL_TANPA_TANGGAL = 90
+
 KETERANGAN_ALPA = 'Otomatis Alpa oleh Sistem (Lewat Jam 15:00 WIB)'
 
 _sapu_lock = threading.Lock()   # satu penyapuan pada satu waktu per proses
@@ -60,6 +66,32 @@ def _ke_date(nilai):
     if isinstance(nilai, date):
         return nilai
     return datetime.strptime(str(nilai)[:10], '%Y-%m-%d').date()
+
+
+def _hari_pertama_akun(s):
+    """Hari pertama siswa benar-benar bisa absen (akun dibuat >= 15:00 mulai besok)."""
+    dibuat = s.get('dibuat')
+    if not isinstance(dibuat, datetime):
+        return None
+    hari = dibuat.date()
+    if dibuat.time() >= JAM_BATAS_ALPA:
+        hari += timedelta(days=1)
+    return hari
+
+
+def _hari_awal(s, hari_ini, susulkan):
+    """Tanggal pertama yang boleh dihitung Alpa untuk satu siswa."""
+    mulai = _ke_date(s.get('tgl_mulai_pkl'))
+    hari_pertama = _hari_pertama_akun(s)
+    if mulai:
+        awal = mulai if susulkan else max(mulai, hari_ini)
+    elif susulkan and FALLBACK_MULAI_DARI_AKUN and hari_pertama:
+        awal = max(hari_pertama, hari_ini - timedelta(days=MAKS_HARI_SUSUL_TANPA_TANGGAL))
+    else:
+        awal = hari_ini
+    if hari_pertama:
+        awal = max(awal, hari_pertama)
+    return awal
 
 
 def hitung_alpa_tertunda(siswa_rows, absensi_ada, pengajuan_bebas, pengajuan_terlambat,
@@ -79,18 +111,9 @@ def hitung_alpa_tertunda(siswa_rows, absensi_ada, pengajuan_bebas, pengajuan_ter
         mulai = _ke_date(s.get('tgl_mulai_pkl'))
         selesai = _ke_date(s.get('tgl_selesai_pkl'))
 
-        # Tanpa tanggal mulai tidak ada patokan "sejak kapan" -> hanya hari ini.
-        awal = hari_ini
-        if mulai:
-            awal = mulai if susulkan else max(mulai, hari_ini)
-
-        # Batas bawah: hari pertama siswa benar-benar bisa absen (sejak akun dibuat).
-        dibuat = s.get('dibuat')
-        if isinstance(dibuat, datetime):
-            hari_pertama = dibuat.date()
-            if dibuat.time() >= JAM_BATAS_ALPA:
-                hari_pertama += timedelta(days=1)
-            awal = max(awal, hari_pertama)
+        # Awal hitungan: tgl_mulai_pkl; bila kosong -> sejak akun dibuat (lihat _hari_awal).
+        # Tidak pernah sebelum hari pertama akun bisa absen.
+        awal = _hari_awal(s, hari_ini, susulkan)
         akhir = min(selesai, hari_terakhir) if selesai else hari_terakhir
         if mulai and mulai > hari_ini:
             continue
@@ -110,8 +133,11 @@ def hitung_alpa_tertunda(siswa_rows, absensi_ada, pengajuan_bebas, pengajuan_ter
     return hasil
 
 
-def jalankan_auto_alpa(siswa_id=None, sekarang=None, susulkan=SUSULKAN_HARI_LAMPAU):
-    """Catat Alpa untuk semua (atau satu) siswa. Mengembalikan jumlah baris baru."""
+def jalankan_auto_alpa(siswa_id=None, sekarang=None, susulkan=SUSULKAN_HARI_LAMPAU, dry_run=False):
+    """Catat Alpa untuk semua (atau satu) siswa. Mengembalikan jumlah baris baru.
+
+    dry_run=True: tidak menyimpan apa pun; mencetak rincian dan mengembalikan jumlah yang AKAN dicatat.
+    """
     sekarang = sekarang or sekarang_wib()
     conn = get_db_connection()
     if not conn:
@@ -137,9 +163,9 @@ def jalankan_auto_alpa(siswa_id=None, sekarang=None, susulkan=SUSULKAN_HARI_LAMP
         paling_awal = hari_ini
         if susulkan:
             for s in siswa_rows:
-                m = _ke_date(s.get('tgl_mulai_pkl'))
-                if m and m < paling_awal:
-                    paling_awal = m
+                awal_s = _hari_awal(s, hari_ini, susulkan)
+                if awal_s < paling_awal:
+                    paling_awal = awal_s
         rentang = (paling_awal.isoformat(), hari_ini.isoformat())
 
         filter_siswa = ""
@@ -176,14 +202,27 @@ def jalankan_auto_alpa(siswa_id=None, sekarang=None, susulkan=SUSULKAN_HARI_LAMP
         tertunda = hitung_alpa_tertunda(
             siswa_rows, absensi_ada, pengajuan_bebas, pengajuan_terlambat, sekarang, susulkan, libur)
 
+        if dry_run:
+            per_siswa = {}
+            for sid, tgl in tertunda:
+                per_siswa.setdefault(sid, []).append(tgl)
+            for sid, daftar in sorted(per_siswa.items()):
+                print(f"[DRY-RUN] siswa_id={sid}: {len(daftar)} hari "
+                      f"({min(daftar).isoformat()} .. {max(daftar).isoformat()})")
+            return len(tertunda)
+
         baru = 0
         for sid, tgl in tertunda:
-            cursor.execute("""
-                INSERT INTO absensi (siswa_id, tanggal, status, keterangan, is_manual, created_at)
-                SELECT %s, %s, 'Alpa', %s, 0, NOW() FROM DUAL
-                WHERE NOT EXISTS (SELECT 1 FROM absensi WHERE siswa_id = %s AND tanggal = %s)
-            """, (sid, tgl.isoformat(), KETERANGAN_ALPA, sid, tgl.isoformat()))
-            baru += max(cursor.rowcount, 0)
+            # Satu baris gagal tidak boleh membatalkan Alpa siswa lain.
+            try:
+                cursor.execute("""
+                    INSERT INTO absensi (siswa_id, tanggal, status, keterangan, is_manual, created_at)
+                    SELECT %s, %s, 'Alpa', %s, 0, NOW() FROM DUAL
+                    WHERE NOT EXISTS (SELECT 1 FROM absensi WHERE siswa_id = %s AND tanggal = %s)
+                """, (sid, tgl.isoformat(), KETERANGAN_ALPA, sid, tgl.isoformat()))
+                baru += max(cursor.rowcount, 0)
+            except Exception as e:
+                print(f"[ERROR AUTO ALPA] siswa_id={sid} tanggal={tgl}: {e}")
         conn.commit()
         return baru
     except Exception as e:  # jangan sampai thread/permintaan web ikut mati

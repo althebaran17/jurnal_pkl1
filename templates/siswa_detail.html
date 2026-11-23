@@ -20,18 +20,7 @@
             gap: 12px;
             flex-wrap: wrap;
         }
-        .btn-back {
-            display: inline-flex;
-            align-items: center;
-            color: var(--text-muted);
-            text-decoration: none;
-            font-weight: 600;
-            font-size: var(--text-base);
-            transition: var(--transition);
-        }
-        .btn-back:hover {
-            color: var(--primary);
-        }
+
         .card {
             margin-bottom: 24px;
         }
@@ -146,30 +135,6 @@
         .val-danger { color: var(--danger); }
 
         /* Styling Tombol Aksi */
-        .btn-action-custom {
-            padding: 8px 16px;
-            font-size: var(--text-sm);
-            font-weight: 600;
-            border-radius: var(--radius-sm);
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            transition: var(--transition);
-            box-shadow: var(--shadow-xs);
-            border: 1px solid transparent;
-            cursor: pointer;
-            color: #ffffff;
-            white-space: nowrap;
-        }
-        .btn-action-custom:hover {
-            transform: translateY(-1px);
-            box-shadow: var(--shadow-sm);
-            opacity: 0.92;
-        }
-        .btn-action-warning { background-color: var(--warning); border: none; }
-        .btn-action-primary { background-color: var(--primary); }
 
         @media (max-width: 768px) {
             .action-header {
@@ -277,6 +242,8 @@
                         </li>
                     </ul>
                 </div>
+
+                {% include '_sidebar_penilaian.html' %}
             </div>
         </div>
     </div>
@@ -315,7 +282,7 @@
             {% with messages = get_flashed_messages(with_categories=true) %}
               {% if messages %}
                 {% for category, message in messages %}
-                  <div class="alert alert-{{ category }}">{{ message }}</div>
+                  <div class="alert alert-{{ category }}" role="alert">{{ message }}</div>
                 {% endfor %}
               {% endif %}
             {% endwith %}
@@ -373,7 +340,7 @@
                         </tr>
                         <tr>
                             <th>Asal Sekolah</th>
-                            <td>{{ siswa.nama_sekolah }}</td>
+                            <td>{{ siswa.nama_sekolah or '-' }}</td>
                         </tr>
                         <tr>
                             <th>Pembimbing Sekolah</th>
@@ -462,7 +429,7 @@
             <form action="{{ url_for('reset_password_siswa', siswa_id=siswa.id) }}" method="POST">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div style="display: flex; gap: 12px; justify-content: flex-end;">
-                    <button type="button" class="btn-action-custom" onclick="closeResetModal()" style="flex: 1; background-color: var(--surface); color: var(--text-secondary); border: 1px solid var(--border);">Batal</button>
+                    <button type="button" class="btn-action-secondary" onclick="closeResetModal()" style="flex: 1;">Batal</button>
                     <button type="submit" class="btn-action-custom btn-action-warning" style="flex: 1;">Ya, Reset Password</button>
                 </div>
             </form>

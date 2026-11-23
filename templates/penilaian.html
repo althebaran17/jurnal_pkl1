@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Penilaian PKL - E-Jurnal PKL</title>
+    
+    <!-- FAVICON (LOGO TAB BROWSER) -->
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/logo.png') }}">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+
+<style>
+    /* Style khusus halaman ini; komponen bersama ada di static/css/app.css */
+    .action-bar {
+        margin-bottom: 24px;
+    }
+    .search-form-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr) auto auto;
+        gap: 12px;
+        background-color: var(--surface);
+        padding: 24px;
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-sm);
+    }
+    .search-input {
+        width: 100%;
+        padding: 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        font-size: var(--text-base);
+        color: var(--text);
+        background-color: var(--surface);
+        outline: none;
+        transition: var(--transition);
+    }
+    .search-input:focus {
+        border-color: var(--primary);
+        box-shadow: var(--focus-ring);
+    }
+
+    /* =========================================
+       STYLING TOMBOL AKSI TABEL (AGAR TIDAK POLOS)
+       ========================================= */
+
+    /* Varian warna tombol tabel */
+
+    @media (max-width: 992px) {
+        .search-form-grid {
+            grid-template-columns: 1fr 1fr;
+        }
+    }
+    @media (max-width: 768px) {
+        .search-form-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .nilai-wrap { overflow-x: auto; }
+    .nilai-table { min-width: 980px; }
+    .nilai-table td, .nilai-table th { vertical-align: middle; }
+    .nilai-input { width: 78px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 8px; text-align: center; font-size: 14px; background: var(--surface); color: var(--text); }
+    .nilai-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+    .nilai-input.invalid { border-color: #ef4444; background: #fef2f2; }
+    tr.row-dirty { background: rgba(250, 204, 21, .12); }
+    .pill-pred { display:inline-flex; width:30px; height:30px; align-items:center; justify-content:center; border-radius:8px; font-weight:700; background:#e5e7eb; color:#374151; }
+    .pill-pred.A { background:#dcfce7; color:#166534; } .pill-pred.B { background:#dbeafe; color:#1e40af; }
+    .pill-pred.C { background:#fef9c3; color:#854d0e; } .pill-pred.D { background:#fee2e2; color:#991b1b; }
+    .badge-status { white-space:nowrap; font-size:12px; font-weight:600; padding:3px 9px; border-radius:999px; }
+    .badge-status.sudah { background:#dcfce7; color:#166534; } .badge-status.belum { background:#fee2e2; color:#991b1b; }
+    .small-muted { font-size:12px; color: var(--text-faint); }
+    
+    .catatan-row { display:none; } .catatan-row.open { display: table-row; }
+    .catatan-row textarea { width:100%; min-height:70px; padding:8px 10px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:14px; background:var(--surface); color:var(--text); }
+    .save-bar { position: sticky; bottom: 0; display:flex; gap:12px; align-items:center; justify-content:space-between; padding:12px 16px; margin-top:14px; background: var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:0 -4px 16px rgba(0,0,0,.06); }
+
+</style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <script src="{{ url_for('static', filename='js/responsive.js') }}" defer></script>
+</head>
+<body>
+
+    <!-- SIDEBAR DARK SOLID -->
+    <div class="sidebar">
+        <div>
+            <!-- BRAND DENGAN LOGO DARI STATIC -->
+            <div class="sidebar-brand">
+                <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" class="brand-logo-img">
+                <div class="brand-text">
+                    <span class="brand-title">E-Jurnal PKL</span> 
+                    <span class="brand-subtitle">{{ 'Panel Admin' if session.get('role') == 'admin' else 'Panel Pembimbing' }}</span>
+                </div>
+            </div>
+
+            <div class="sidebar-nav">
+                {% if session.get('role') == 'admin' %}{% include '_sidebar_admin.html' %}{% endif %}
+                <div class="nav-group">
+                    <span class="nav-label">Main Menu</span>
+                    <ul class="sidebar-menu">
+                        <li>
+                            <a href="{{ url_for('dashboard_pembimbing') }}" class="{{ 'active' if request.endpoint == 'dashboard_pembimbing' else '' }}">
+                                <div class="menu-link-content">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+                                    Dashboard
+                                </div>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="nav-group">
+                    <span class="nav-label">Siswa & Absensi</span>
+                    <ul class="sidebar-menu">
+                        <li>
+                            <a href="{{ url_for('daftar_siswa') }}" class="{{ 'active' if request.endpoint in ['daftar_siswa', 'detail_siswa'] else '' }}">
+                                <div class="menu-link-content">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                    Daftar Siswa
+                                </div>
+                            </a>
+                        </li>
+                        <li>
+                            <a href="{{ url_for('tambah_siswa_page') }}" class="{{ 'active' if request.endpoint == 'tambah_siswa_page' else '' }}">
+                                <div class="menu-link-content">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                                    Tambah Siswa
+                                </div>
+                            </a>
+                        </li>
+                        <li>
+                            <a href="{{ url_for('persetujuan_absensi') }}" class="{{ 'active' if request.endpoint == 'persetujuan_absensi' else '' }}">
+                                <div class="menu-link-content">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                                    Persetujuan Izin/Sakit
+                                </div>
+                                {% if notif_pengajuan > 0 %}
+                                    <span class="menu-badge">{{ notif_pengajuan }}</span>
+                                {% endif %}
+                            </a>
+                        </li>
+                        <li>
+                            <a href="{{ url_for('riwayat_absensi') }}" class="{{ 'active' if request.endpoint == 'riwayat_absensi' else '' }}">
+                                <div class="menu-link-content">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    Absensi Siswa
+                                </div>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="nav-group">
+                    <span class="nav-label">Jurnal & Laporan</span>
+                    <ul class="sidebar-menu">
+                        <li>
+                            <a href="{{ url_for('validasi_laporan') }}" class="{{ 'active' if request.endpoint in ['validasi_laporan', 'validasi_detail'] else '' }}">
+                                <div class="menu-link-content">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                    Validasi Laporan
+                                </div>
+                                {% if notif_laporan > 0 %}
+                                    <span class="menu-badge">{{ notif_laporan }}</span>
+                                {% endif %}
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+                {% include '_sidebar_penilaian.html' %}
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN CONTENT WRAPPER -->
+    <div class="main-wrapper">
+        <div class="navbar">
+            <div class="navbar-title">Penilaian PKL</div>
+            
+            <div class="navbar-right" style="display: flex; align-items: center; gap: 12px;">
+                <!-- Tombol Profil -->
+                <a href="{{ url_for('profil_pembimbing') }}" class="btn-profile-nav">
+                    <div class="avatar-wrapper">
+                        <div class="nav-avatar-placeholder">
+                            {{ session['nama'][0]|upper }}
+                        </div>
+                        <span class="status-indicator"></span>
+                    </div>
+                    <span>{{ session['nama'] }}</span>
+                </a>
+
+                <!-- Tombol Logout -->
+                <button type="button" class="btn-logout-nav" onclick="openLogoutModal()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                        <polyline points="16 17 21 12 16 7"></polyline>
+                        <line x1="21" y1="12" x2="9" y2="12"></line>
+                    </svg>
+                    Logout
+                </button>
+            </div>
+        </div>
+
+        <div class="content">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+              {% if messages %}
+                {% for category, message in messages %}
+                  <div class="alert alert-{{ category }}" role="alert">{{ message }}</div>
+                {% endfor %}
+              {% endif %}
+            {% endwith %}
+
+            <div class="action-bar">
+                <form action="{{ url_for('penilaian_massal') }}" method="GET" class="search-form-grid">
+                    <input type="text" name="q" class="search-input" placeholder="Cari nama / NISN / kelas" value="{{ f_q or '' }}">
+                    <select name="sekolah" class="search-input">
+                        <option value="">Semua sekolah</option>
+                        {% for k in sekolah_opsi %}<option value="{{ k.id }}" {{ 'selected' if f_sekolah == k.id else '' }}>{{ k.nama }}</option>{% endfor %}
+                    </select>
+                    <select name="status" class="search-input">
+                        <option value="semua" {{ 'selected' if f_status == 'semua' else '' }}>Semua status</option>
+                        <option value="belum" {{ 'selected' if f_status == 'belum' else '' }}>Belum dinilai</option>
+                        <option value="sudah" {{ 'selected' if f_status == 'sudah' else '' }}>Sudah dinilai</option>
+                    </select>
+                    <button type="submit" class="btn-search-action">Terapkan</button>
+                    {% if f_q or f_sekolah or f_status != 'semua' %}
+                        <a href="{{ url_for('penilaian_massal') }}" class="btn-reset-action">Reset</a>
+                    {% endif %}
+                </form>
+            </div>
+
+            <form id="formNilai" method="POST" action="{{ url_for('penilaian_massal') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="q" value="{{ f_q or '' }}">
+                <input type="hidden" name="sekolah" value="{{ f_sekolah or '' }}">
+                <input type="hidden" name="status" value="{{ f_status }}">
+                <input type="hidden" name="ubah_ids" id="ubahIds" value="">
+
+                <div class="table-container nilai-wrap">
+                    <table class="nilai-table">
+                        <thead>
+                            <tr>
+                                <th>No</th>
+                                <th>Siswa</th>
+                                <th style="text-align:center;">Kehadiran</th>
+                                <th style="text-align:center;">Laporan</th>
+                                <th style="text-align:center;">Sikap (0-100)</th>
+                                <th style="text-align:center;">Teknis (0-100)</th>
+                                <th style="text-align:center;">Nilai Akhir</th>
+                                <th style="text-align:center;">Predikat</th>
+                                <th>Status</th>
+                                <th style="text-align:center;">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for r in rows %}
+                            <tr class="baris" data-id="{{ r.id }}" data-ab="{{ r.nilai_absensi }}" data-lp="{{ r.nilai_laporan }}">
+                                <td>{{ loop.index }}</td>
+                                <td>
+                                    <strong>{{ r.nama }}</strong>
+                                    <div class="small-muted">{{ r.kelas_jurusan or '-' }} &middot; {{ r.nama_sekolah or '-' }}</div>
+                                </td>
+                                <td style="text-align:center;">{{ r.nilai_absensi|round(1) }}%<div class="small-muted">{{ r.hadir|int }}/{{ r.total_hari }} hari</div></td>
+                                <td style="text-align:center;">{{ r.nilai_laporan|round(1) }}%<div class="small-muted">{{ r.laporan_acc }} di-ACC</div></td>
+                                <td style="text-align:center;"><input class="nilai-input in-sikap" type="number" min="0" max="100" step="1" inputmode="numeric" name="sikap_{{ r.id }}" value="{{ r.nilai_sikap if r.nilai_id else '' }}" data-awal="{{ r.nilai_sikap if r.nilai_id else '' }}"></td>
+                                <td style="text-align:center;"><input class="nilai-input in-teknis" type="number" min="0" max="100" step="1" inputmode="numeric" name="teknis_{{ r.id }}" value="{{ r.nilai_teknis if r.nilai_id else '' }}" data-awal="{{ r.nilai_teknis if r.nilai_id else '' }}"></td>
+                                <td style="text-align:center;"><strong class="out-akhir">{{ r.nilai_akhir|round(2) if r.nilai_id else '-' }}</strong></td>
+                                <td style="text-align:center;"><span class="pill-pred out-pred {{ r.predikat or '' }}">{{ r.predikat or '-' }}</span></td>
+                                <td><span class="badge-status {{ 'sudah' if r.nilai_id else 'belum' }}">{{ 'Sudah dinilai' if r.nilai_id else 'Belum dinilai' }}</span></td>
+                                <td style="text-align:center;white-space:nowrap;">
+                                    <button type="button" class="btn-mini" onclick="toggleCatatan({{ r.id }})">Catatan</button>
+                                    {% if r.nilai_id %}<a class="btn-mini" href="{{ url_for('nilai_pkl_pdf', siswa_id=r.id) }}">PDF</a>{% endif %}
+                                </td>
+                            </tr>
+                            <tr class="catatan-row" id="catatan-{{ r.id }}">
+                                <td></td>
+                                <td colspan="9"><textarea name="catatan_{{ r.id }}" maxlength="1000" placeholder="Catatan pembimbing (opsional)" data-awal="{{ r.catatan_pembimbing or '' }}">{{ r.catatan_pembimbing or '' }}</textarea></td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="10" style="text-align:center;padding:28px;color:var(--text-faint);">Tidak ada siswa yang cocok dengan filter.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="save-bar">
+                    <div class="small-muted" id="infoDirty">Belum ada perubahan.</div>
+                    <button type="submit" class="btn-save-all" id="btnSimpan" disabled>Simpan Semua</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="logoutModal" class="modal-overlay">
+        <div class="modal-box-logout">
+            <div class="modal-icon-logout">!</div>
+            <div class="modal-title-logout">Konfirmasi Logout</div>
+            <div class="modal-desc-logout">Apakah Anda yakin ingin keluar dari aplikasi E-Jurnal PKL?</div>
+            <div class="modal-actions-logout">
+                <button type="button" class="btn-modal btn-modal-cancel" onclick="closeLogoutModal()">Batal</button>
+                <a href="{{ url_for('logout') }}" class="btn-modal btn-modal-confirm">Ya, Keluar</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openLogoutModal() { document.getElementById('logoutModal').style.display = 'flex'; }
+        function closeLogoutModal() { document.getElementById('logoutModal').style.display = 'none'; }
+        window.onclick = function (e) { if (e.target === document.getElementById('logoutModal')) closeLogoutModal(); };
+
+        function toggleCatatan(id) { document.getElementById('catatan-' + id).classList.toggle('open'); }
+
+        function predikat(n) { return n >= 85 ? 'A' : n >= 75 ? 'B' : n >= 65 ? 'C' : 'D'; }
+        const dirty = new Set();
+        const form = document.getElementById('formNilai');
+
+        function valid(el) {
+            if (el.value === '') return null;
+            const v = Number(el.value);
+            return (Number.isInteger(v) && v >= 0 && v <= 100) ? v : NaN;
+        }
+
+        function refreshBar() {
+            const n = dirty.size;
+            document.getElementById('btnSimpan').disabled = n === 0;
+            document.getElementById('infoDirty').textContent = n ? (n + ' siswa diubah, belum disimpan.') : 'Belum ada perubahan.';
+        }
+
+        function hitungBaris(tr) {
+            const sk = tr.querySelector('.in-sikap'), tk = tr.querySelector('.in-teknis');
+            const vs = valid(sk), vt = valid(tk);
+            sk.classList.toggle('invalid', Number.isNaN(vs));
+            tk.classList.toggle('invalid', Number.isNaN(vt));
+            const akhir = tr.querySelector('.out-akhir'), pred = tr.querySelector('.out-pred');
+            if (vs !== null && vt !== null && !Number.isNaN(vs) && !Number.isNaN(vt)) {
+                const n = Math.round((parseFloat(tr.dataset.ab) * 0.2 + parseFloat(tr.dataset.lp) * 0.2 + vs * 0.3 + vt * 0.3) * 100) / 100;
+                akhir.textContent = n;
+                pred.textContent = predikat(n);
+                pred.className = 'pill-pred out-pred ' + predikat(n);
+            }
+        }
+
+        document.querySelectorAll('tr.baris').forEach(tr => {
+            const id = tr.dataset.id;
+            const catatan = document.querySelector('textarea[name="catatan_' + id + '"]');
+            const cek = () => {
+                const berubah = ['.in-sikap', '.in-teknis'].some(s => tr.querySelector(s).value !== tr.querySelector(s).dataset.awal)
+                    || catatan.value !== catatan.dataset.awal;
+                tr.classList.toggle('row-dirty', berubah);
+                berubah ? dirty.add(id) : dirty.delete(id);
+                hitungBaris(tr);
+                refreshBar();
+            };
+            tr.querySelectorAll('input').forEach(i => i.addEventListener('input', cek));
+            catatan.addEventListener('input', cek);
+        });
+
+        form.addEventListener('submit', function (e) {
+            if (document.querySelector('.nilai-input.invalid')) {
+                e.preventDefault();
+                alert('Ada nilai yang tidak valid. Isi bilangan bulat 0-100.');
+                return;
+            }
+            document.getElementById('ubahIds').value = Array.from(dirty).join(',');
+            dirty.clear();   // jangan munculkan peringatan keluar halaman saat menyimpan
+        });
+
+        window.addEventListener('beforeunload', function (e) {
+            if (dirty.size) { e.preventDefault(); e.returnValue = ''; }
+        });
+    </script>
+
+</body>
+</html>

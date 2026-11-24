@@ -1,4 +1,4 @@
-"""Auto-Alpa massal (batas jam 15:00 WIB).
+"""Auto-Alpa massal (batas jam 17:00 WIB).
 
 Kenapa modul ini ada
 --------------------
@@ -17,16 +17,16 @@ Aturan (sama dengan aturan lama, hanya dibuat massal)
 * Hanya hari dalam periode PKL siswa (tgl_mulai_pkl .. tgl_selesai_pkl).
 * TIDAK PERNAH sebelum akun siswa dibuat: bila tgl_mulai_pkl diisi tanggal lampau
   saat siswa baru ditambahkan, hari-hari sebelum akun ada tidak dianggap Alpa.
-  Akun yang dibuat setelah pukul 15:00 baru mulai dihitung besok harinya.
+  Akun yang dibuat setelah pukul 17:00 baru mulai dihitung besok harinya.
 * Hari libur (tabel hari_libur: tanggal merah / libur perusahaan, diatur Admin)
   tidak dihitung. Libur bisa untuk semua sekolah (sekolah_id NULL) atau satu sekolah.
 * Akun siswa yang dinonaktifkan dilewati.
-* Hari ini baru dihitung setelah pukul 15:00 WIB; hari-hari sebelumnya
+* Hari ini baru dihitung setelah pukul 17:00 WIB; hari-hari sebelumnya
   yang terlewat (server mati / thread belum jalan) ikut disusulkan.
 * Tidak dicatat Alpa bila sudah ada baris absensi, atau ada pengajuan
   Izin/Sakit berstatus Pending/Disetujui. Pengajuan Terlambat yang
-  Pending/Disetujui hanya membebaskan HARI INI sebelum pukul 15:00; setelah
-  15:00 (batas presensi) siswa yang belum selfie tetap dicatat Alpa.
+  Pending/Disetujui hanya membebaskan HARI INI sebelum pukul 17:00; setelah
+  17:00 (batas presensi) siswa yang belum selfie tetap dicatat Alpa.
 
 Penyisipan memakai INSERT ... WHERE NOT EXISTS sehingga aman bila beberapa
 proses/worker berjalan bersamaan.
@@ -49,7 +49,7 @@ from datetime import date, datetime, time, timedelta
 from config import get_db_connection
 from waktu import WIB, sekarang_wib
 
-JAM_BATAS_ALPA = time(15, 0)
+JAM_BATAS_ALPA = time(17, 0)
 INTERVAL_DETIK = 60
 
 # Ubah ke False bila hanya ingin mengisi Alpa untuk HARI INI (tanpa menyusul
@@ -62,7 +62,7 @@ SUSULKAN_HARI_LAMPAU = True
 FALLBACK_MULAI_DARI_AKUN = True
 MAKS_HARI_SUSUL_TANPA_TANGGAL = 90
 
-KETERANGAN_ALPA = 'Otomatis Alpa oleh Sistem (Lewat Jam 15:00 WIB)'
+KETERANGAN_ALPA = 'Otomatis Alpa oleh Sistem (Lewat Jam 17:00 WIB)'
 
 _sapu_lock = threading.Lock()   # satu penyapuan pada satu waktu per proses
 _start_lock = threading.Lock()
@@ -80,7 +80,7 @@ def _ke_date(nilai):
 
 
 def _hari_pertama_akun(s):
-    """Hari pertama siswa benar-benar bisa absen (akun dibuat >= 15:00 mulai besok)."""
+    """Hari pertama siswa benar-benar bisa absen (akun dibuat >= 17:00 mulai besok)."""
     dibuat = s.get('dibuat')
     if not isinstance(dibuat, datetime):
         return None
